@@ -28,13 +28,28 @@ import UIKit
     }
 
     /// Reuses `existing` if it's already a `LanguageModelSession`, otherwise
-    /// creates a new one.
+    /// creates a new one bound to `tools`.
     ///
     /// Reusing the same session across calls lets the model remember prior
     /// turns in the conversation, since the framework records every prompt
-    /// and response into the session's transcript automatically.
-    static func getOrCreateSession(_ existing: Any?) -> LanguageModelSession {
-      existing as? LanguageModelSession ?? LanguageModelSession()
+    /// and response into the session's transcript automatically. Tools are
+    /// bound at session creation — the framework offers no way to change
+    /// them later — which is why `EdgeGenAIPrompt` fixes tools per instance.
+    static func getOrCreateSession(_ existing: Any?, tools: [any Tool]) -> LanguageModelSession {
+      existing as? LanguageModelSession ?? LanguageModelSession(tools: tools)
+    }
+
+    /// Builds the native `Tool`s backing the Dart-defined tools, so the
+    /// model can call back into the app through `toolExecutorApi`.
+    static func makeTools(
+      definitions: [EdgeGenAIToolDefinition],
+      sessionId: String,
+      toolExecutorApi: EdgeGenAIToolExecutorApi
+    ) -> [any Tool] {
+      definitions.compactMap { definition in
+        DartBackedTool(
+          definition: definition, sessionId: sessionId, toolExecutorApi: toolExecutorApi)
+      }
     }
 
     /// Runs a one-shot, stateless generation of a response to `prompt` from

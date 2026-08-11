@@ -1,6 +1,7 @@
 package com.manukj.edge_gen_ai
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.google.mlkit.genai.common.DownloadCallback
 import com.google.mlkit.genai.common.DownloadStatus
@@ -28,6 +29,8 @@ import com.google.mlkit.genai.summarization.SummarizationRequest
 import com.google.mlkit.genai.summarization.Summarizer
 import com.google.mlkit.genai.summarization.SummarizerOptions
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.guava.await
@@ -39,8 +42,31 @@ private class PendingGenerateContentRequest(
     val prompt: String,
     val options: EdgeGenAIGenerationOptions?,
     val useMemory: Boolean,
-    val image: ByteArray?
+    val image: ByteArray?,
+    val tools: List<EdgeGenAIToolDefinition>
 )
+
+/** Runs a suspending operation and forwards its success or failure to Pigeon. */
+private fun <T> CoroutineScope.launchWithResult(
+    callback: (Result<T>) -> Unit,
+    operation: suspend () -> T
+) {
+    launch {
+        try {
+            callback(Result.success(operation()))
+        } catch (e: Exception) {
+            callback(Result.failure(e))
+        }
+    }
+}
+
+/** Emits one consistently shaped download-progress event. */
+private fun PigeonEventSink<EdgeGenAIDownloadProgress>.sendProgress(
+    status: EdgeGenAIDownloadStatus,
+    bytesDownloaded: Long? = null
+) {
+    success(EdgeGenAIDownloadProgress(status, bytesDownloaded))
+}
 
 /** EdgeGenAIPlugin */
 class EdgeGenAIPlugin :
@@ -114,7 +140,12 @@ class EdgeGenAIPlugin :
         )
         GenerateContentChunkStreamHandler.register(
             flutterPluginBinding.binaryMessenger,
-            EdgeGenAIGenerateContentStreamHandler(scope, generativeModel, histories) {
+            EdgeGenAIGenerateContentStreamHandler(
+                scope,
+                generativeModel,
+                histories,
+                EdgeGenAIToolExecutorApi(flutterPluginBinding.binaryMessenger),
+            ) {
                 pendingRequest.also { pendingRequest = null }
             },
         )
@@ -124,32 +155,23 @@ class EdgeGenAIPlugin :
         feature: EdgeGenAIFeature,
         callback: (Result<EdgeGenAIAvailability>) -> Unit
     ) {
-        scope.launch {
-            val availability =
-                try {
-                    val status =
-                        when (feature) {
-                            EdgeGenAIFeature.PROMPT -> generativeModel.checkStatus()
-                            EdgeGenAIFeature.SUMMARIZATION ->
-                                summarizer.checkFeatureStatus().await()
-                            EdgeGenAIFeature.PROOFREADING ->
-                                proofreader.checkFeatureStatus().await()
-                            EdgeGenAIFeature.REWRITING ->
-                                rewriterForLifecycle.checkFeatureStatus().await()
-                            EdgeGenAIFeature.IMAGE_DESCRIPTION ->
-                                imageDescriber.checkFeatureStatus().await()
-                        }
-                    when (status) {
-                        FeatureStatus.AVAILABLE -> EdgeGenAIAvailability.AVAILABLE
-                        FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING ->
-                            EdgeGenAIAvailability.DOWNLOADABLE
-                        else -> EdgeGenAIAvailability.UNAVAILABLE
-                    }
-                } catch (e: Exception) {
-                    callback(Result.failure(e))
-                    return@launch
+        scope.launchWithResult(callback) {
+            val status =
+                when (feature) {
+                    EdgeGenAIFeature.PROMPT -> generativeModel.checkStatus()
+                    EdgeGenAIFeature.SUMMARIZATION -> summarizer.checkFeatureStatus().await()
+                    EdgeGenAIFeature.PROOFREADING -> proofreader.checkFeatureStatus().await()
+                    EdgeGenAIFeature.REWRITING ->
+                        rewriterForLifecycle.checkFeatureStatus().await()
+                    EdgeGenAIFeature.IMAGE_DESCRIPTION ->
+                        imageDescriber.checkFeatureStatus().await()
                 }
-            callback(Result.success(availability))
+            when (status) {
+                FeatureStatus.AVAILABLE -> EdgeGenAIAvailability.AVAILABLE
+                FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING ->
+                    EdgeGenAIAvailability.DOWNLOADABLE
+                else -> EdgeGenAIAvailability.UNAVAILABLE
+            }
         }
     }
 
@@ -158,10 +180,11 @@ class EdgeGenAIPlugin :
         prompt: String,
         options: EdgeGenAIGenerationOptions?,
         useMemory: Boolean,
-        image: ByteArray?
+        image: ByteArray?,
+        tools: List<EdgeGenAIToolDefinition>
     ) {
         pendingRequest =
-            PendingGenerateContentRequest(sessionId, prompt, options, useMemory, image)
+            PendingGenerateContentRequest(sessionId, prompt, options, useMemory, image, tools)
     }
 
     override fun resetConversation(sessionId: String) {
@@ -172,16 +195,11 @@ class EdgeGenAIPlugin :
         text: String,
         callback: (Result<String>) -> Unit
     ) {
-        scope.launch {
-            try {
-                val result =
-                    summarizer
-                        .runInference(SummarizationRequest.builder(text).build())
-                        .await()
-                callback(Result.success(result.summary))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
-            }
+        scope.launchWithResult(callback) {
+            summarizer
+                .runInference(SummarizationRequest.builder(text).build())
+                .await()
+                .summary
         }
     }
 
@@ -189,17 +207,13 @@ class EdgeGenAIPlugin :
         text: String,
         callback: (Result<String>) -> Unit
     ) {
-        scope.launch {
-            try {
-                val result =
-                    proofreader
-                        .runInference(ProofreadingRequest.builder(text).build())
-                        .await()
-                // No suggestions means the model found nothing to fix.
-                callback(Result.success(result.results.firstOrNull()?.text ?: text))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
-            }
+        scope.launchWithResult(callback) {
+            val result =
+                proofreader
+                    .runInference(ProofreadingRequest.builder(text).build())
+                    .await()
+            // No suggestions means the model found nothing to fix.
+            result.results.firstOrNull()?.text ?: text
         }
     }
 
@@ -217,7 +231,7 @@ class EdgeGenAIPlugin :
                 EdgeGenAIRewriteStyle.FRIENDLY -> RewriterOptions.OutputType.FRIENDLY
                 EdgeGenAIRewriteStyle.PROFESSIONAL -> RewriterOptions.OutputType.PROFESSIONAL
             }
-        scope.launch {
+        scope.launchWithResult(callback) {
             val rewriter =
                 Rewriting.getClient(
                     RewriterOptions.builder(context).setOutputType(outputType).build()
@@ -227,9 +241,7 @@ class EdgeGenAIPlugin :
                     rewriter
                         .runInference(RewritingRequest.builder(text).build())
                         .await()
-                callback(Result.success(result.results.firstOrNull()?.text ?: text))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
+                result.results.firstOrNull()?.text ?: text
             } finally {
                 rewriter.close()
             }
@@ -249,16 +261,11 @@ class EdgeGenAIPlugin :
             )
             return
         }
-        scope.launch {
-            try {
-                val result =
-                    imageDescriber
-                        .runInference(ImageDescriptionRequest.builder(bitmap).build())
-                        .await()
-                callback(Result.success(result.description))
-            } catch (e: Exception) {
-                callback(Result.failure(e))
-            }
+        scope.launchWithResult(callback) {
+            imageDescriber
+                .runInference(ImageDescriptionRequest.builder(bitmap).build())
+                .await()
+                .description
         }
     }
 
@@ -281,20 +288,14 @@ private class PromptDownloadStreamHandler(
             generativeModel.download().collect { status ->
                 when (status) {
                     is DownloadStatus.DownloadStarted ->
-                        sink.success(
-                            EdgeGenAIDownloadProgress(EdgeGenAIDownloadStatus.STARTED, null)
-                        )
+                        sink.sendProgress(EdgeGenAIDownloadStatus.STARTED)
                     is DownloadStatus.DownloadProgress ->
-                        sink.success(
-                            EdgeGenAIDownloadProgress(
-                                EdgeGenAIDownloadStatus.IN_PROGRESS,
-                                status.totalBytesDownloaded
-                            )
+                        sink.sendProgress(
+                            EdgeGenAIDownloadStatus.IN_PROGRESS,
+                            status.totalBytesDownloaded,
                         )
                     is DownloadStatus.DownloadCompleted -> {
-                        sink.success(
-                            EdgeGenAIDownloadProgress(EdgeGenAIDownloadStatus.COMPLETED, null)
-                        )
+                        sink.sendProgress(EdgeGenAIDownloadStatus.COMPLETED)
                         sink.endOfStream()
                     }
                     is DownloadStatus.DownloadFailed ->
@@ -322,9 +323,7 @@ private fun downloadFeatureInto(
     scope.launch {
         try {
             if (checkStatus() == FeatureStatus.AVAILABLE) {
-                sink.success(
-                    EdgeGenAIDownloadProgress(EdgeGenAIDownloadStatus.COMPLETED, null)
-                )
+                sink.sendProgress(EdgeGenAIDownloadStatus.COMPLETED)
                 sink.endOfStream()
                 return@launch
             }
@@ -338,28 +337,22 @@ private fun downloadFeatureInto(
             object : DownloadCallback {
                 override fun onDownloadStarted(bytesToDownload: Long) {
                     scope.launch {
-                        sink.success(
-                            EdgeGenAIDownloadProgress(EdgeGenAIDownloadStatus.STARTED, null)
-                        )
+                        sink.sendProgress(EdgeGenAIDownloadStatus.STARTED)
                     }
                 }
 
                 override fun onDownloadProgress(totalBytesDownloaded: Long) {
                     scope.launch {
-                        sink.success(
-                            EdgeGenAIDownloadProgress(
-                                EdgeGenAIDownloadStatus.IN_PROGRESS,
-                                totalBytesDownloaded
-                            )
+                        sink.sendProgress(
+                            EdgeGenAIDownloadStatus.IN_PROGRESS,
+                            totalBytesDownloaded,
                         )
                     }
                 }
 
                 override fun onDownloadCompleted() {
                     scope.launch {
-                        sink.success(
-                            EdgeGenAIDownloadProgress(EdgeGenAIDownloadStatus.COMPLETED, null)
-                        )
+                        sink.sendProgress(EdgeGenAIDownloadStatus.COMPLETED)
                         sink.endOfStream()
                     }
                 }
@@ -443,13 +436,26 @@ private class ImageDescriptionDownloadStreamHandler(
 /**
  * Starts generation for the request stashed via `startGenerateContent` when Flutter
  * starts listening, and streams the cumulative response text as it's generated.
+ *
+ * When the request carries tools, generation runs as a multi-round loop instead
+ * (see ToolPrompting): each round's full response is checked for a tool-call
+ * JSON object; on a match the matching Dart executor runs via
+ * [EdgeGenAIToolExecutorApi] and its result is fed into the next round. Only
+ * the final answer is emitted, as a single event, since intermediate rounds
+ * are tool-call JSON the caller shouldn't see.
  */
 private class EdgeGenAIGenerateContentStreamHandler(
     private val scope: CoroutineScope,
     private val generativeModel: GenerativeModel,
     private val histories: MutableMap<String, MutableList<Pair<String, String>>>,
+    private val toolExecutorApi: EdgeGenAIToolExecutorApi,
     private val takePendingRequest: () -> PendingGenerateContentRequest?
 ) : GenerateContentChunkStreamHandler() {
+    private companion object {
+        /** Bounds the tool-call loop so a confused model can't spin forever. */
+        const val MAX_TOOL_ROUNDS = 4
+    }
+
     override fun onListen(
         p0: Any?,
         sink: PigeonEventSink<String>
@@ -478,30 +484,101 @@ private class EdgeGenAIGenerateContentStreamHandler(
             sink.error("invalid_image", "The image bytes couldn't be decoded.", null)
             return
         }
-        val generateRequest =
-            if (bitmap != null) {
-                generateContentRequest(ImagePart(bitmap), TextPart(promptWithHistory)) {
-                    request.options?.temperature?.let { temperature = it.toFloat() }
-                    request.options?.maxOutputTokens?.let { maxOutputTokens = it.toInt() }
-                }
-            } else {
-                generateContentRequest(TextPart(promptWithHistory)) {
-                    request.options?.temperature?.let { temperature = it.toFloat() }
-                    request.options?.maxOutputTokens?.let { maxOutputTokens = it.toInt() }
-                }
-            }
         scope.launch {
             try {
-                var cumulativeText = ""
-                generativeModel.generateContentStream(generateRequest).collect { response ->
-                    cumulativeText += response.candidates.first().text
-                    sink.success(cumulativeText)
-                }
-                history?.add(request.prompt to cumulativeText)
+                val finalText =
+                    if (request.tools.isEmpty()) {
+                        generateText(request, promptWithHistory, bitmap) { text ->
+                            sink.success(text)
+                        }
+                    } else {
+                        runToolLoop(request, promptWithHistory, bitmap, sink)
+                    }
+                history?.add(request.prompt to finalText)
                 sink.endOfStream()
             } catch (e: Exception) {
                 sink.error("generate_content_failed", e.message, null)
             }
+        }
+    }
+
+    /** Generates one complete response, optionally reporting cumulative text. */
+    private suspend fun generateText(
+        request: PendingGenerateContentRequest,
+        prompt: String,
+        bitmap: Bitmap?,
+        onUpdate: (String) -> Unit = {}
+    ): String {
+        val cumulativeText = StringBuilder()
+        generativeModel
+            .generateContentStream(buildGenerateRequest(prompt, bitmap, request.options))
+            .collect { response ->
+                cumulativeText.append(response.candidates.first().text)
+                onUpdate(cumulativeText.toString())
+            }
+        return cumulativeText.toString()
+    }
+
+    /** The tool-emulation path: loops rounds until the model stops calling tools. */
+    private suspend fun runToolLoop(
+        request: PendingGenerateContentRequest,
+        prompt: String,
+        bitmap: Bitmap?,
+        sink: PigeonEventSink<String>
+    ): String {
+        var roundPrompt =
+            ToolPrompting.buildToolPreamble(request.tools) + "\n\nUser request: " + prompt
+        var rounds = 0
+        while (true) {
+            val responseText = generateText(request, roundPrompt, bitmap)
+            val toolCall =
+                if (rounds < MAX_TOOL_ROUNDS) {
+                    ToolPrompting.parseToolCall(responseText, request.tools)
+                } else {
+                    null
+                }
+            if (toolCall == null) {
+                sink.success(responseText)
+                return responseText
+            }
+            rounds++
+            val toolResult =
+                callDartTool(request.sessionId, toolCall.toolName, toolCall.argumentsJson)
+            roundPrompt += ToolPrompting.buildToolResultContinuation(toolCall, toolResult)
+        }
+    }
+
+    /**
+     * Runs the tool's Dart implementation and returns its result. Executor
+     * failures come back as text for the model to react to, rather than
+     * aborting the whole generation.
+     */
+    private suspend fun callDartTool(
+        sessionId: String,
+        toolName: String,
+        argumentsJson: String
+    ): String =
+        suspendCoroutine { continuation ->
+            toolExecutorApi.callTool(sessionId, toolName, argumentsJson) { result ->
+                continuation.resume(
+                    result.getOrElse { e -> "The tool failed with an error: ${e.message}" }
+                )
+            }
+        }
+
+    private fun buildGenerateRequest(
+        prompt: String,
+        bitmap: Bitmap?,
+        options: EdgeGenAIGenerationOptions?
+    ) = if (bitmap != null) {
+        generateContentRequest(ImagePart(bitmap), TextPart(prompt)) {
+            options?.temperature?.let { temperature = it.toFloat() }
+            options?.maxOutputTokens?.let { maxOutputTokens = it.toInt() }
+        }
+    } else {
+        generateContentRequest(TextPart(prompt)) {
+            options?.temperature?.let { temperature = it.toFloat() }
+            options?.maxOutputTokens?.let { maxOutputTokens = it.toInt() }
         }
     }
 }

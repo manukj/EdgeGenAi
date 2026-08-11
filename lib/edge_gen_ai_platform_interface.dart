@@ -7,6 +7,7 @@ import 'edge_gen_ai_download_progress.dart';
 import 'edge_gen_ai_generation_options.dart';
 import 'edge_gen_ai_method_channel.dart';
 import 'edge_gen_ai_rewrite_style.dart';
+import 'edge_gen_ai_tool.dart';
 
 abstract class EdgeGenAIPlatform extends PlatformInterface {
   /// Constructs a EdgeGenAIPlatform.
@@ -51,12 +52,16 @@ abstract class EdgeGenAIPlatform extends PlatformInterface {
   /// stateless one-off call. Pass [useMemory] as true to remember (and
   /// build on) prior [useMemory] calls from the same [sessionId]; use
   /// [resetConversation] to start that remembered conversation over.
+  ///
+  /// [tools] are functions the model may call while generating; their Dart
+  /// implementations run in this isolate when it does.
   Stream<String> generateContent(
     String sessionId,
     String prompt, {
     EdgeGenAIGenerationOptions? options,
     bool useMemory = false,
     Uint8List? image,
+    List<EdgeGenAITool> tools = const [],
   }) {
     throw UnimplementedError('generateContent() has not been implemented.');
   }

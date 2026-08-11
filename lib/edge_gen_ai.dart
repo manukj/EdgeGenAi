@@ -9,3 +9,9 @@ export 'edge_gen_ai_proofreader.dart' show EdgeGenAIProofreader;
 export 'edge_gen_ai_rewrite_style.dart' show EdgeGenAIRewriteStyle;
 export 'edge_gen_ai_rewriter.dart' show EdgeGenAIRewriter;
 export 'edge_gen_ai_summarizer.dart' show EdgeGenAISummarizer;
+export 'edge_gen_ai_tool.dart'
+    show
+        EdgeGenAITool,
+        EdgeGenAIToolParameter,
+        EdgeGenAIToolParameterType,
+        EdgeGenAIToolSchema;

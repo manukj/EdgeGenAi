@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:edge_gen_ai/edge_gen_ai_method_channel.dart';
+import 'package:edge_gen_ai/edge_gen_ai_tool.dart';
 import 'package:edge_gen_ai/src/messages.g.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -89,6 +92,84 @@ void main() {
       platform.generateContent('a-session-id', 'a prompt'),
       emits('a generated response'),
     );
+
+    messenger.setMockMessageHandler(hostChannel, null);
+    messenger.setMockMessageHandler(eventChannel, null);
+  });
+
+  test('a platform tool call runs the registered Dart executor', () async {
+    const hostChannel =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.startGenerateContent';
+    const eventChannel =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.generateContentChunk';
+    const toolChannel =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIToolExecutorApi.callTool';
+
+    Map<String, Object?>? receivedArguments;
+    final tool = EdgeGenAITool(
+      name: 'get_weather',
+      description: 'Gets the weather.',
+      parameters: [
+        EdgeGenAIToolParameter(name: 'city', description: 'The city.'),
+      ],
+      onCall: (arguments) async {
+        receivedArguments = arguments;
+        return 'sunny';
+      },
+    );
+
+    List<Object?>? sentToolDefinitions;
+    messenger.setMockMessageHandler(hostChannel, (ByteData? message) async {
+      final args =
+          EdgeGenAIHostApi.pigeonChannelCodec.decodeMessage(message)
+              as List<Object?>;
+      sentToolDefinitions = args[5] as List<Object?>?;
+      return EdgeGenAIHostApi.pigeonChannelCodec.encodeMessage(<Object?>[null]);
+    });
+    messenger.setMockMessageHandler(eventChannel, (ByteData? message) async {
+      final call = pigeonMethodCodec.decodeMethodCall(message);
+      if (call.method == 'listen') {
+        final envelope = pigeonMethodCodec.encodeSuccessEnvelope('an answer');
+        await messenger.handlePlatformMessage(eventChannel, envelope, (_) {});
+        // A null message closes the event stream.
+        await messenger.handlePlatformMessage(eventChannel, null, (_) {});
+      }
+      return null;
+    });
+
+    await platform
+        .generateContent('a-session-id', 'a prompt', tools: [tool])
+        .drain<void>();
+
+    // The tool's schema crossed to the platform side...
+    final definition = sentToolDefinitions!.single as EdgeGenAIToolDefinition;
+    expect(definition.name, 'get_weather');
+    expect(jsonDecode(definition.parametersSchemaJson), {
+      'type': 'object',
+      'properties': {
+        'city': {'type': 'string', 'description': 'The city.'},
+      },
+      'required': ['city'],
+    });
+
+    // ...and a platform-side tool call reaches the Dart executor.
+    final replyCompleter = Completer<ByteData?>();
+    await messenger.handlePlatformMessage(
+      toolChannel,
+      EdgeGenAIToolExecutorApi.pigeonChannelCodec.encodeMessage(<Object?>[
+        'a-session-id',
+        'get_weather',
+        '{"city": "Oslo"}',
+      ]),
+      replyCompleter.complete,
+    );
+    final reply = await replyCompleter.future;
+    final decodedReply =
+        EdgeGenAIToolExecutorApi.pigeonChannelCodec.decodeMessage(reply)
+            as List<Object?>;
+
+    expect(decodedReply, ['sunny']);
+    expect(receivedArguments, {'city': 'Oslo'});
 
     messenger.setMockMessageHandler(hostChannel, null);
     messenger.setMockMessageHandler(eventChannel, null);

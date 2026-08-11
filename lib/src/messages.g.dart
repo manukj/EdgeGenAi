@@ -10,9 +10,9 @@ import 'package:flutter/services.dart';
 import 'package:meta/meta.dart' show immutable, protected, visibleForTesting;
 
 Object? _extractReplyValueOrThrow(
-    List<Object?>? replyList,
-    String channelName, {
-    required bool isNullValid,
+  List<Object?>? replyList,
+  String channelName, {
+  required bool isNullValid,
 }) {
   if (replyList == null) {
     throw PlatformException(
@@ -34,6 +34,20 @@ Object? _extractReplyValueOrThrow(
   return replyList.firstOrNull;
 }
 
+List<Object?> wrapResponse({
+  Object? result,
+  PlatformException? error,
+  bool empty = false,
+}) {
+  if (empty) {
+    return <Object?>[];
+  }
+  if (error == null) {
+    return <Object?>[result];
+  }
+  return <Object?>[error.code, error.message, error.details];
+}
+
 bool _deepEquals(Object? a, Object? b) {
   if (identical(a, b)) {
     return true;
@@ -46,8 +60,9 @@ bool _deepEquals(Object? a, Object? b) {
   }
   if (a is List && b is List) {
     return a.length == b.length &&
-        a.indexed
-            .every(((int, dynamic) item) => _deepEquals(item.$2, b[item.$1]));
+        a.indexed.every(
+          ((int, dynamic) item) => _deepEquals(item.$2, b[item.$1]),
+        );
   }
   if (a is Map && b is Map) {
     if (a.length != b.length) {
@@ -96,18 +111,20 @@ int _deepHash(Object? value) {
   return value.hashCode;
 }
 
-
 /// The availability of an on-device generative AI feature.
 enum EdgeGenAIAvailability {
   /// The feature is available and ready to use.
   available,
+
   /// The device supports the feature, but it still needs to download (for
   /// example, Android's Gemini Nano feature is downloadable/downloading).
   downloadable,
+
   /// The device supports the feature, but the user hasn't enabled the
   /// OS-level AI feature yet (for example, Apple Intelligence is turned
   /// off).
   notYetReady,
+
   /// The device or OS version doesn't support the on-device feature.
   unavailable,
 }
@@ -120,12 +137,16 @@ enum EdgeGenAIAvailability {
 enum EdgeGenAIFeature {
   /// The general-purpose prompt feature (`EdgeGenAIPrompt`).
   prompt,
+
   /// The text summarization feature (`EdgeGenAISummarizer`).
   summarization,
+
   /// The proofreading feature (`EdgeGenAIProofreader`).
   proofreading,
+
   /// The text rewriting feature (`EdgeGenAIRewriter`).
   rewriting,
+
   /// The image description feature (`EdgeGenAIImageDescriber`).
   imageDescription,
 }
@@ -137,14 +158,19 @@ enum EdgeGenAIFeature {
 enum EdgeGenAIRewriteStyle {
   /// Rephrases the text while keeping its meaning and length.
   rephrase,
+
   /// Expands on the text with more detail.
   elaborate,
+
   /// Adds fitting emoji to the text.
   emojify,
+
   /// Shortens the text while keeping its meaning.
   shorten,
+
   /// Rewrites the text in a casual, friendly tone.
   friendly,
+
   /// Rewrites the text in a formal, professional tone.
   professional,
 }
@@ -153,20 +179,95 @@ enum EdgeGenAIRewriteStyle {
 enum EdgeGenAIDownloadStatus {
   /// The download has started.
   started,
+
   /// The download is in progress.
   inProgress,
+
   /// The download finished and the model is ready to use.
   completed,
+}
+
+/// The model-facing description of a tool the app exposes to the model.
+///
+/// The tool's implementation stays in Dart (see `EdgeGenAITool.onCall`);
+/// only this schema crosses to the platform side, which calls back into
+/// Dart via `EdgeGenAIToolExecutorApi` when the model invokes the tool.
+///
+/// The description field is named `descriptionText` (not `description`)
+/// because Pigeon reserves `description` for Swift's NSObject property.
+class EdgeGenAIToolDefinition {
+  EdgeGenAIToolDefinition({
+    required this.name,
+    required this.descriptionText,
+    required this.parametersSchemaJson,
+  });
+
+  /// The tool's unique name.
+  String name;
+
+  /// What the tool does, so the model knows when to call it.
+  String descriptionText;
+
+  /// A JSON Schema document (as JSON text) describing the tool's arguments
+  /// object: `{"type": "object", "properties": {...}, "required": [...]}`.
+  ///
+  /// It's carried as JSON text rather than typed Pigeon classes because
+  /// schemas are recursive (objects nest objects, arrays have item
+  /// schemas), which Pigeon data classes can't express. The supported
+  /// subset — mirroring what Foundation Models' `DynamicGenerationSchema`
+  /// can enforce — is: `type` (string/number/integer/boolean/array/object),
+  /// `description`, `enum` (strings), `minimum`/`maximum` (numbers),
+  /// `items`/`minItems`/`maxItems` (arrays), and `properties`/`required`
+  /// (objects). The `EdgeGenAIToolSchema` factories in Dart only build
+  /// this subset.
+  String parametersSchemaJson;
+
+  List<Object?> _toList() {
+    return <Object?>[name, descriptionText, parametersSchemaJson];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static EdgeGenAIToolDefinition decode(Object result) {
+    result as List<Object?>;
+    return EdgeGenAIToolDefinition(
+      name: result[0]! as String,
+      descriptionText: result[1]! as String,
+      parametersSchemaJson: result[2]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! EdgeGenAIToolDefinition || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(name, other.name) &&
+        _deepEquals(descriptionText, other.descriptionText) &&
+        _deepEquals(parametersSchemaJson, other.parametersSchemaJson);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'EdgeGenAIToolDefinition(name: $name, descriptionText: $descriptionText, parametersSchemaJson: $parametersSchemaJson)';
+  }
 }
 
 /// Optional parameters controlling how the model generates its response.
 ///
 /// Only fields supported by both Android and iOS are exposed here.
 class EdgeGenAIGenerationOptions {
-  EdgeGenAIGenerationOptions({
-    this.temperature,
-    this.maxOutputTokens,
-  });
+  EdgeGenAIGenerationOptions({this.temperature, this.maxOutputTokens});
 
   /// Controls the randomness of the output. Higher values produce more
   /// creative (less predictable) responses.
@@ -176,14 +277,12 @@ class EdgeGenAIGenerationOptions {
   int? maxOutputTokens;
 
   List<Object?> _toList() {
-    return <Object?>[
-      temperature,
-      maxOutputTokens,
-    ];
+    return <Object?>[temperature, maxOutputTokens];
   }
 
   Object encode() {
-    return _toList();  }
+    return _toList();
+  }
 
   static EdgeGenAIGenerationOptions decode(Object result) {
     result as List<Object?>;
@@ -196,13 +295,15 @@ class EdgeGenAIGenerationOptions {
   @override
   // ignore: avoid_equals_and_hash_code_on_mutable_classes
   bool operator ==(Object other) {
-    if (other is! EdgeGenAIGenerationOptions || other.runtimeType != runtimeType) {
+    if (other is! EdgeGenAIGenerationOptions ||
+        other.runtimeType != runtimeType) {
       return false;
     }
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(temperature, other.temperature) && _deepEquals(maxOutputTokens, other.maxOutputTokens);
+    return _deepEquals(temperature, other.temperature) &&
+        _deepEquals(maxOutputTokens, other.maxOutputTokens);
   }
 
   @override
@@ -217,10 +318,7 @@ class EdgeGenAIGenerationOptions {
 
 /// A single download progress update.
 class EdgeGenAIDownloadProgress {
-  EdgeGenAIDownloadProgress({
-    required this.status,
-    this.bytesDownloaded,
-  });
+  EdgeGenAIDownloadProgress({required this.status, this.bytesDownloaded});
 
   /// The current status of the download.
   EdgeGenAIDownloadStatus status;
@@ -230,14 +328,12 @@ class EdgeGenAIDownloadProgress {
   int? bytesDownloaded;
 
   List<Object?> _toList() {
-    return <Object?>[
-      status,
-      bytesDownloaded,
-    ];
+    return <Object?>[status, bytesDownloaded];
   }
 
   Object encode() {
-    return _toList();  }
+    return _toList();
+  }
 
   static EdgeGenAIDownloadProgress decode(Object result) {
     result as List<Object?>;
@@ -250,13 +346,15 @@ class EdgeGenAIDownloadProgress {
   @override
   // ignore: avoid_equals_and_hash_code_on_mutable_classes
   bool operator ==(Object other) {
-    if (other is! EdgeGenAIDownloadProgress || other.runtimeType != runtimeType) {
+    if (other is! EdgeGenAIDownloadProgress ||
+        other.runtimeType != runtimeType) {
       return false;
     }
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(status, other.status) && _deepEquals(bytesDownloaded, other.bytesDownloaded);
+    return _deepEquals(status, other.status) &&
+        _deepEquals(bytesDownloaded, other.bytesDownloaded);
   }
 
   @override
@@ -269,7 +367,6 @@ class EdgeGenAIDownloadProgress {
   }
 }
 
-
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
   @override
@@ -277,23 +374,26 @@ class _PigeonCodec extends StandardMessageCodec {
     if (value is int) {
       buffer.putUint8(4);
       buffer.putInt64(value);
-    }    else if (value is EdgeGenAIAvailability) {
+    } else if (value is EdgeGenAIAvailability) {
       buffer.putUint8(129);
       writeValue(buffer, value.index);
-    }    else if (value is EdgeGenAIFeature) {
+    } else if (value is EdgeGenAIFeature) {
       buffer.putUint8(130);
       writeValue(buffer, value.index);
-    }    else if (value is EdgeGenAIRewriteStyle) {
+    } else if (value is EdgeGenAIRewriteStyle) {
       buffer.putUint8(131);
       writeValue(buffer, value.index);
-    }    else if (value is EdgeGenAIDownloadStatus) {
+    } else if (value is EdgeGenAIDownloadStatus) {
       buffer.putUint8(132);
       writeValue(buffer, value.index);
-    }    else if (value is EdgeGenAIGenerationOptions) {
+    } else if (value is EdgeGenAIToolDefinition) {
       buffer.putUint8(133);
       writeValue(buffer, value.encode());
-    }    else if (value is EdgeGenAIDownloadProgress) {
+    } else if (value is EdgeGenAIGenerationOptions) {
       buffer.putUint8(134);
+      writeValue(buffer, value.encode());
+    } else if (value is EdgeGenAIDownloadProgress) {
+      buffer.putUint8(135);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -316,8 +416,10 @@ class _PigeonCodec extends StandardMessageCodec {
         final value = readValue(buffer) as int?;
         return value == null ? null : EdgeGenAIDownloadStatus.values[value];
       case 133:
-        return EdgeGenAIGenerationOptions.decode(readValue(buffer)!);
+        return EdgeGenAIToolDefinition.decode(readValue(buffer)!);
       case 134:
+        return EdgeGenAIGenerationOptions.decode(readValue(buffer)!);
+      case 135:
         return EdgeGenAIDownloadProgress.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -325,37 +427,47 @@ class _PigeonCodec extends StandardMessageCodec {
   }
 }
 
-const StandardMethodCodec pigeonMethodCodec = StandardMethodCodec(_PigeonCodec());
+const StandardMethodCodec pigeonMethodCodec = StandardMethodCodec(
+  _PigeonCodec(),
+);
 
 class EdgeGenAIHostApi {
   /// Constructor for [EdgeGenAIHostApi]. The [binaryMessenger] named argument is
   /// available for dependency injection. If it is left null, the default
   /// BinaryMessenger will be used which routes to the host platform.
-  EdgeGenAIHostApi({BinaryMessenger? binaryMessenger, String messageChannelSuffix = ''})
-      : pigeonVar_binaryMessenger = binaryMessenger,
-        pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
+  EdgeGenAIHostApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
   final BinaryMessenger? pigeonVar_binaryMessenger;
 
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
 
   final String pigeonVar_messageChannelSuffix;
 
-  Future<EdgeGenAIAvailability> checkAvailability(EdgeGenAIFeature feature) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.checkAvailability$pigeonVar_messageChannelSuffix';
+  Future<EdgeGenAIAvailability> checkAvailability(
+    EdgeGenAIFeature feature,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.checkAvailability$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[feature]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[feature],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as EdgeGenAIAvailability;
   }
 
@@ -367,127 +479,205 @@ class EdgeGenAIHostApi {
   /// is true; when false, it's a stateless, one-off call that neither reads
   /// nor updates that instance's remembered conversation. [image] is an
   /// optional encoded image (for example PNG or JPEG bytes) sent to the
-  /// model alongside [prompt].
+  /// model alongside [prompt]. [tools] describes the tools the model may
+  /// call during generation; when it does, the platform side invokes the
+  /// matching Dart executor through `EdgeGenAIToolExecutorApi.callTool`.
   ///
   /// Event channels can't carry parameters, so callers must invoke this
   /// immediately before listening to the `generateContentChunk` stream.
-  Future<void> startGenerateContent(String sessionId, String prompt, EdgeGenAIGenerationOptions? options, bool useMemory, Uint8List? image) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.startGenerateContent$pigeonVar_messageChannelSuffix';
+  Future<void> startGenerateContent(
+    String sessionId,
+    String prompt,
+    EdgeGenAIGenerationOptions? options,
+    bool useMemory,
+    Uint8List? image,
+    List<EdgeGenAIToolDefinition> tools,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.startGenerateContent$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[sessionId, prompt, options, useMemory, image]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[sessionId, prompt, options, useMemory, image, tools],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: true,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 
   /// Clears the conversation history remembered for [sessionId] so that
   /// instance's next `generateContent` call starts a fresh conversation.
   Future<void> resetConversation(String sessionId) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.resetConversation$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.resetConversation$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[sessionId]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[sessionId],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: true,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 
   /// Summarizes [text] and returns the summary.
   Future<String> summarize(String text) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.summarize$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.summarize$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[text]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[text],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as String;
   }
 
   /// Proofreads [text] and returns the corrected text.
   Future<String> proofread(String text) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.proofread$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.proofread$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[text]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[text],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as String;
   }
 
   /// Rewrites [text] in the given [style] and returns the rewritten text.
   Future<String> rewrite(String text, EdgeGenAIRewriteStyle style) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.rewrite$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.rewrite$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[text, style]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[text, style],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as String;
   }
 
   /// Describes the image encoded in [imageBytes] (for example PNG or JPEG
   /// bytes) and returns the description.
   Future<String> describeImage(Uint8List imageBytes) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.describeImage$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.describeImage$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[imageBytes]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[imageBytes],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as String;
+  }
+}
+
+/// Calls from the platform side back into Dart, where tool implementations
+/// live.
+abstract class EdgeGenAIToolExecutorApi {
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  /// Runs the Dart executor of the tool named [toolName] (registered by the
+  /// `EdgeGenAIPrompt` instance identified by [sessionId]) with the
+  /// JSON-encoded [argumentsJson] the model provided, and returns the
+  /// tool's result for the model to continue generating with.
+  Future<String> callTool(
+    String sessionId,
+    String toolName,
+    String argumentsJson,
+  );
+
+  static void setUp(
+    EdgeGenAIToolExecutorApi? api, {
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) {
+    messageChannelSuffix = messageChannelSuffix.isNotEmpty
+        ? '.$messageChannelSuffix'
+        : '';
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIToolExecutorApi.callTool$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final String arg_sessionId = args[0]! as String;
+          final String arg_toolName = args[1]! as String;
+          final String arg_argumentsJson = args[2]! as String;
+          try {
+            final String output = await api.callTool(
+              arg_sessionId,
+              arg_toolName,
+              arg_argumentsJson,
+            );
+            return wrapResponse(result: output);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
   }
 }
 
@@ -497,69 +687,102 @@ class EdgeGenAIHostApi {
 /// On iOS there's nothing for the app to download — Apple Intelligence is
 /// enabled system-wide in Settings — so every download stream immediately
 /// emits a single `completed` event.
-Stream<EdgeGenAIDownloadProgress> promptDownloadProgress( {String instanceName = ''}) {
+Stream<EdgeGenAIDownloadProgress> promptDownloadProgress({
+  String instanceName = '',
+}) {
   if (instanceName.isNotEmpty) {
     instanceName = '.$instanceName';
   }
-  final EventChannel promptDownloadProgressChannel =
-      EventChannel('dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.promptDownloadProgress$instanceName', pigeonMethodCodec);
-  return promptDownloadProgressChannel.receiveBroadcastStream().map((dynamic event) {
+  final EventChannel promptDownloadProgressChannel = EventChannel(
+    'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.promptDownloadProgress$instanceName',
+    pigeonMethodCodec,
+  );
+  return promptDownloadProgressChannel.receiveBroadcastStream().map((
+    dynamic event,
+  ) {
     return event as EdgeGenAIDownloadProgress;
   });
 }
-    
-Stream<EdgeGenAIDownloadProgress> summarizationDownloadProgress( {String instanceName = ''}) {
+
+Stream<EdgeGenAIDownloadProgress> summarizationDownloadProgress({
+  String instanceName = '',
+}) {
   if (instanceName.isNotEmpty) {
     instanceName = '.$instanceName';
   }
-  final EventChannel summarizationDownloadProgressChannel =
-      EventChannel('dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.summarizationDownloadProgress$instanceName', pigeonMethodCodec);
-  return summarizationDownloadProgressChannel.receiveBroadcastStream().map((dynamic event) {
+  final EventChannel summarizationDownloadProgressChannel = EventChannel(
+    'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.summarizationDownloadProgress$instanceName',
+    pigeonMethodCodec,
+  );
+  return summarizationDownloadProgressChannel.receiveBroadcastStream().map((
+    dynamic event,
+  ) {
     return event as EdgeGenAIDownloadProgress;
   });
 }
-    
-Stream<EdgeGenAIDownloadProgress> proofreadingDownloadProgress( {String instanceName = ''}) {
+
+Stream<EdgeGenAIDownloadProgress> proofreadingDownloadProgress({
+  String instanceName = '',
+}) {
   if (instanceName.isNotEmpty) {
     instanceName = '.$instanceName';
   }
-  final EventChannel proofreadingDownloadProgressChannel =
-      EventChannel('dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.proofreadingDownloadProgress$instanceName', pigeonMethodCodec);
-  return proofreadingDownloadProgressChannel.receiveBroadcastStream().map((dynamic event) {
+  final EventChannel proofreadingDownloadProgressChannel = EventChannel(
+    'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.proofreadingDownloadProgress$instanceName',
+    pigeonMethodCodec,
+  );
+  return proofreadingDownloadProgressChannel.receiveBroadcastStream().map((
+    dynamic event,
+  ) {
     return event as EdgeGenAIDownloadProgress;
   });
 }
-    
-Stream<EdgeGenAIDownloadProgress> rewritingDownloadProgress( {String instanceName = ''}) {
+
+Stream<EdgeGenAIDownloadProgress> rewritingDownloadProgress({
+  String instanceName = '',
+}) {
   if (instanceName.isNotEmpty) {
     instanceName = '.$instanceName';
   }
-  final EventChannel rewritingDownloadProgressChannel =
-      EventChannel('dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.rewritingDownloadProgress$instanceName', pigeonMethodCodec);
-  return rewritingDownloadProgressChannel.receiveBroadcastStream().map((dynamic event) {
+  final EventChannel rewritingDownloadProgressChannel = EventChannel(
+    'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.rewritingDownloadProgress$instanceName',
+    pigeonMethodCodec,
+  );
+  return rewritingDownloadProgressChannel.receiveBroadcastStream().map((
+    dynamic event,
+  ) {
     return event as EdgeGenAIDownloadProgress;
   });
 }
-    
-Stream<EdgeGenAIDownloadProgress> imageDescriptionDownloadProgress( {String instanceName = ''}) {
+
+Stream<EdgeGenAIDownloadProgress> imageDescriptionDownloadProgress({
+  String instanceName = '',
+}) {
   if (instanceName.isNotEmpty) {
     instanceName = '.$instanceName';
   }
-  final EventChannel imageDescriptionDownloadProgressChannel =
-      EventChannel('dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.imageDescriptionDownloadProgress$instanceName', pigeonMethodCodec);
-  return imageDescriptionDownloadProgressChannel.receiveBroadcastStream().map((dynamic event) {
+  final EventChannel imageDescriptionDownloadProgressChannel = EventChannel(
+    'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.imageDescriptionDownloadProgress$instanceName',
+    pigeonMethodCodec,
+  );
+  return imageDescriptionDownloadProgressChannel.receiveBroadcastStream().map((
+    dynamic event,
+  ) {
     return event as EdgeGenAIDownloadProgress;
   });
 }
-    
-Stream<String> generateContentChunk( {String instanceName = ''}) {
+
+Stream<String> generateContentChunk({String instanceName = ''}) {
   if (instanceName.isNotEmpty) {
     instanceName = '.$instanceName';
   }
-  final EventChannel generateContentChunkChannel =
-      EventChannel('dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.generateContentChunk$instanceName', pigeonMethodCodec);
-  return generateContentChunkChannel.receiveBroadcastStream().map((dynamic event) {
+  final EventChannel generateContentChunkChannel = EventChannel(
+    'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIEventApi.generateContentChunk$instanceName',
+    pigeonMethodCodec,
+  );
+  return generateContentChunkChannel.receiveBroadcastStream().map((
+    dynamic event,
+  ) {
     return event as String;
   });
 }
-    

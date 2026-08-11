@@ -7,11 +7,11 @@ import Flutter
 /// starts listening, and streams the cumulative response text as it's generated.
 class GenerateContentStreamHandler: GenerateContentChunkStreamHandler {
   private let takePendingRequest: () -> PendingGenerateContentRequest?
-  private let takeSession: (String, Bool) -> Any?
+  private let takeSession: (String, Bool, [EdgeGenAIToolDefinition]) -> Any?
 
   init(
     takePendingRequest: @escaping () -> PendingGenerateContentRequest?,
-    takeSession: @escaping (String, Bool) -> Any?
+    takeSession: @escaping (String, Bool, [EdgeGenAIToolDefinition]) -> Any?
   ) {
     self.takePendingRequest = takePendingRequest
     self.takeSession = takeSession
@@ -28,7 +28,7 @@ class GenerateContentStreamHandler: GenerateContentChunkStreamHandler {
     #if canImport(FoundationModels)
       if #available(iOS 26.0, *) {
         guard
-          let session = takeSession(request.sessionId, request.useMemory)
+          let session = takeSession(request.sessionId, request.useMemory, request.tools)
             as? LanguageModelSession
         else {
           sink.error(

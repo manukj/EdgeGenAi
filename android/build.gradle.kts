@@ -103,4 +103,7 @@ dependencies {
     testImplementation("io.flutter:flutter_embedding_release:1.0.0-$flutterEngineVersion")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.mockito:mockito-core:5.0.0")
+    // The android.jar used by JVM unit tests only stubs org.json, so pull in
+    // the real implementation for ToolPromptingTest.
+    testImplementation("org.json:json:20240303")
 }

@@ -15,6 +15,9 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 private object MessagesPigeonUtils {
 
+  fun createConnectionError(channelName: String): FlutterError {
+    return FlutterError("channel-error",  "Unable to establish connection on channel: '$channelName'.", "")  }
+
   fun wrapResult(result: Any?): List<Any?> {
     return listOf(result)
   }
@@ -287,6 +290,78 @@ enum class EdgeGenAIDownloadStatus(val raw: Int) {
 }
 
 /**
+ * The model-facing description of a tool the app exposes to the model.
+ *
+ * The tool's implementation stays in Dart (see `EdgeGenAITool.onCall`);
+ * only this schema crosses to the platform side, which calls back into
+ * Dart via `EdgeGenAIToolExecutorApi` when the model invokes the tool.
+ *
+ * The description field is named `descriptionText` (not `description`)
+ * because Pigeon reserves `description` for Swift's NSObject property.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class EdgeGenAIToolDefinition (
+  /** The tool's unique name. */
+  val name: String,
+  /** What the tool does, so the model knows when to call it. */
+  val descriptionText: String,
+  /**
+   * A JSON Schema document (as JSON text) describing the tool's arguments
+   * object: `{"type": "object", "properties": {...}, "required": [...]}`.
+   *
+   * It's carried as JSON text rather than typed Pigeon classes because
+   * schemas are recursive (objects nest objects, arrays have item
+   * schemas), which Pigeon data classes can't express. The supported
+   * subset — mirroring what Foundation Models' `DynamicGenerationSchema`
+   * can enforce — is: `type` (string/number/integer/boolean/array/object),
+   * `description`, `enum` (strings), `minimum`/`maximum` (numbers),
+   * `items`/`minItems`/`maxItems` (arrays), and `properties`/`required`
+   * (objects). The `EdgeGenAIToolSchema` factories in Dart only build
+   * this subset.
+   */
+  val parametersSchemaJson: String
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): EdgeGenAIToolDefinition {
+      val name = pigeonVar_list[0] as String
+      val descriptionText = pigeonVar_list[1] as String
+      val parametersSchemaJson = pigeonVar_list[2] as String
+      return EdgeGenAIToolDefinition(name, descriptionText, parametersSchemaJson)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      name,
+      descriptionText,
+      parametersSchemaJson,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as EdgeGenAIToolDefinition
+    return MessagesPigeonUtils.deepEquals(this.name, other.name) && MessagesPigeonUtils.deepEquals(this.descriptionText, other.descriptionText) && MessagesPigeonUtils.deepEquals(this.parametersSchemaJson, other.parametersSchemaJson)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.name)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.descriptionText)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.parametersSchemaJson)
+    return result
+  }
+  override fun toString(): String {
+    return "EdgeGenAIToolDefinition(name=$name, descriptionText=$descriptionText, parametersSchemaJson=$parametersSchemaJson)"
+  }
+}
+
+/**
  * Optional parameters controlling how the model generates its response.
  *
  * Only fields supported by both Android and iOS are exposed here.
@@ -412,10 +487,15 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
       }
       133.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          EdgeGenAIGenerationOptions.fromList(it)
+          EdgeGenAIToolDefinition.fromList(it)
         }
       }
       134.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          EdgeGenAIGenerationOptions.fromList(it)
+        }
+      }
+      135.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           EdgeGenAIDownloadProgress.fromList(it)
         }
@@ -441,12 +521,16 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
         stream.write(132)
         writeValue(stream, value.raw.toLong())
       }
-      is EdgeGenAIGenerationOptions -> {
+      is EdgeGenAIToolDefinition -> {
         stream.write(133)
         writeValue(stream, value.toList())
       }
-      is EdgeGenAIDownloadProgress -> {
+      is EdgeGenAIGenerationOptions -> {
         stream.write(134)
+        writeValue(stream, value.toList())
+      }
+      is EdgeGenAIDownloadProgress -> {
+        stream.write(135)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -469,12 +553,14 @@ interface EdgeGenAIHostApi {
    * is true; when false, it's a stateless, one-off call that neither reads
    * nor updates that instance's remembered conversation. [image] is an
    * optional encoded image (for example PNG or JPEG bytes) sent to the
-   * model alongside [prompt].
+   * model alongside [prompt]. [tools] describes the tools the model may
+   * call during generation; when it does, the platform side invokes the
+   * matching Dart executor through `EdgeGenAIToolExecutorApi.callTool`.
    *
    * Event channels can't carry parameters, so callers must invoke this
    * immediately before listening to the `generateContentChunk` stream.
    */
-  fun startGenerateContent(sessionId: String, prompt: String, options: EdgeGenAIGenerationOptions?, useMemory: Boolean, image: ByteArray?)
+  fun startGenerateContent(sessionId: String, prompt: String, options: EdgeGenAIGenerationOptions?, useMemory: Boolean, image: ByteArray?, tools: List<EdgeGenAIToolDefinition>)
   /**
    * Clears the conversation history remembered for [sessionId] so that
    * instance's next `generateContent` call starts a fresh conversation.
@@ -531,8 +617,9 @@ interface EdgeGenAIHostApi {
             val optionsArg = args[2] as EdgeGenAIGenerationOptions?
             val useMemoryArg = args[3] as Boolean
             val imageArg = args[4] as ByteArray?
+            val toolsArg = args[5] as List<EdgeGenAIToolDefinition>
             val wrapped: List<Any?> = try {
-              api.startGenerateContent(sessionIdArg, promptArg, optionsArg, useMemoryArg, imageArg)
+              api.startGenerateContent(sessionIdArg, promptArg, optionsArg, useMemoryArg, imageArg, toolsArg)
               listOf(null)
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)
@@ -642,6 +729,46 @@ interface EdgeGenAIHostApi {
           channel.setMessageHandler(null)
         }
       }
+    }
+  }
+}
+/**
+ * Calls from the platform side back into Dart, where tool implementations
+ * live.
+ *
+ * Generated class from Pigeon that represents Flutter messages that can be called from Kotlin.
+ */
+class EdgeGenAIToolExecutorApi(private val binaryMessenger: BinaryMessenger, private val messageChannelSuffix: String = "") {
+  companion object {
+    /** The codec used by EdgeGenAIToolExecutorApi. */
+    val codec: MessageCodec<Any?> by lazy {
+      MessagesPigeonCodec()
+    }
+  }
+  /**
+   * Runs the Dart executor of the tool named [toolName] (registered by the
+   * `EdgeGenAIPrompt` instance identified by [sessionId]) with the
+   * JSON-encoded [argumentsJson] the model provided, and returns the
+   * tool's result for the model to continue generating with.
+   */
+  fun callTool(sessionIdArg: String, toolNameArg: String, argumentsJsonArg: String, callback: (Result<String>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.edge_gen_ai.EdgeGenAIToolExecutorApi.callTool$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(sessionIdArg, toolNameArg, argumentsJsonArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else if (it[0] == null) {
+          callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
+        } else {
+          val output = it[0] as String
+          callback(Result.success(output))
+        }
+      } else {
+        callback(Result.failure(MessagesPigeonUtils.createConnectionError(channelName)))
+      } 
     }
   }
 }

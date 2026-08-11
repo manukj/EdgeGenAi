@@ -12,6 +12,7 @@ struct PendingGenerateContentRequest {
   let options: EdgeGenAIGenerationOptions?
   let useMemory: Bool
   let image: Data?
+  let tools: [EdgeGenAIToolDefinition]
 }
 
 extension PigeonError {
@@ -45,6 +46,7 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = EdgeGenAIPlugin()
     EdgeGenAIHostApiSetup.setUp(binaryMessenger: registrar.messenger(), api: instance)
+    let toolExecutorApi = EdgeGenAIToolExecutorApi(binaryMessenger: registrar.messenger())
 
     // NOT NEEDED: downloads are only relevant on Android — Apple Intelligence is enabled
     // system-wide in Settings — but we still register every download stream so that the
@@ -69,12 +71,15 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
           instance?.pendingRequest = nil
           return request
         },
-        takeSession: { [weak instance] sessionId, useMemory in
+        takeSession: { [weak instance] sessionId, useMemory, toolDefinitions in
           #if canImport(FoundationModels)
             if #available(iOS 26.0, *) {
-              guard useMemory else { return LanguageModelSession() }
+              let tools = FoundationModelsBridge.makeTools(
+                definitions: toolDefinitions, sessionId: sessionId,
+                toolExecutorApi: toolExecutorApi)
+              guard useMemory else { return LanguageModelSession(tools: tools) }
               let session = FoundationModelsBridge.getOrCreateSession(
-                instance?.sessions[sessionId])
+                instance?.sessions[sessionId], tools: tools)
               instance?.sessions[sessionId] = session
               return session
             }
@@ -115,11 +120,11 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
 
   func startGenerateContent(
     sessionId: String, prompt: String, options: EdgeGenAIGenerationOptions?, useMemory: Bool,
-    image: FlutterStandardTypedData?
+    image: FlutterStandardTypedData?, tools: [EdgeGenAIToolDefinition]
   ) throws {
     pendingRequest = PendingGenerateContentRequest(
       sessionId: sessionId, prompt: prompt, options: options, useMemory: useMemory,
-      image: image?.data)
+      image: image?.data, tools: tools)
   }
 
   func resetConversation(sessionId: String) throws {

@@ -11,6 +11,7 @@ class MockEdgeGenAIPlatform
     implements EdgeGenAIPlatform {
   final List<String> generateContentSessionIds = [];
   final List<String> resetConversationSessionIds = [];
+  final List<List<EdgeGenAITool>> generateContentTools = [];
 
   @override
   Future<EdgeGenAIAvailability> checkAvailability(EdgeGenAIFeature feature) =>
@@ -29,8 +30,10 @@ class MockEdgeGenAIPlatform
     EdgeGenAIGenerationOptions? options,
     bool useMemory = false,
     Uint8List? image,
+    List<EdgeGenAITool> tools = const [],
   }) {
     generateContentSessionIds.add(sessionId);
+    generateContentTools.add(tools);
     return Stream.value('a generated response');
   }
 
@@ -109,6 +112,82 @@ void main() {
     expect(fakePlatform.resetConversationSessionIds, [
       fakePlatform.generateContentSessionIds.first,
     ]);
+  });
+
+  test('generateContent passes the instance tools to the platform', () async {
+    final tool = EdgeGenAITool(
+      name: 'get_weather',
+      description: 'Gets the weather.',
+      parameters: [
+        EdgeGenAIToolParameter(name: 'city', description: 'The city.'),
+      ],
+      onCall: (_) async => 'sunny',
+    );
+
+    await EdgeGenAIPrompt(
+      tools: [tool],
+    ).generateContent('a prompt').drain<void>();
+
+    expect(fakePlatform.generateContentTools.single.single.name, 'get_weather');
+  });
+
+  test('EdgeGenAITool builds a full JSON Schema for its arguments', () {
+    final tool = EdgeGenAITool(
+      name: 'create_reminders',
+      description: 'Creates reminders.',
+      parameters: [
+        EdgeGenAIToolParameter(
+          name: 'reminders',
+          description: 'The reminders to create.',
+          schema: EdgeGenAIToolSchema.array(
+            minItems: 1,
+            items: EdgeGenAIToolSchema.object(
+              properties: {
+                'title': EdgeGenAIToolSchema.string(
+                  description: 'The reminder title.',
+                ),
+                'priority': EdgeGenAIToolSchema.string(
+                  enumValues: ['low', 'medium', 'high'],
+                ),
+                'minutesFromNow': EdgeGenAIToolSchema.integer(minimum: 1),
+              },
+              optionalProperties: ['priority'],
+            ),
+          ),
+        ),
+        EdgeGenAIToolParameter(
+          name: 'note',
+          description: 'An optional note.',
+          isRequired: false,
+        ),
+      ],
+      onCall: (_) async => 'done',
+    );
+
+    expect(tool.argumentsJsonSchema(), {
+      'type': 'object',
+      'properties': {
+        'reminders': {
+          'type': 'array',
+          'minItems': 1,
+          'items': {
+            'type': 'object',
+            'properties': {
+              'title': {'type': 'string', 'description': 'The reminder title.'},
+              'priority': {
+                'type': 'string',
+                'enum': ['low', 'medium', 'high'],
+              },
+              'minutesFromNow': {'type': 'integer', 'minimum': 1},
+            },
+            'required': ['title', 'minutesFromNow'],
+          },
+          'description': 'The reminders to create.',
+        },
+        'note': {'type': 'string', 'description': 'An optional note.'},
+      },
+      'required': ['reminders'],
+    });
   });
 
   test('summarize', () async {

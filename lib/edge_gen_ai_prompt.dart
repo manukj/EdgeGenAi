@@ -4,6 +4,7 @@ import 'edge_gen_ai_availability.dart';
 import 'edge_gen_ai_download_progress.dart';
 import 'edge_gen_ai_generation_options.dart';
 import 'edge_gen_ai_platform_interface.dart';
+import 'edge_gen_ai_tool.dart';
 
 /// The general-purpose on-device prompt feature: send free-form prompts
 /// (optionally with an image) and stream the model's response.
@@ -17,7 +18,11 @@ class EdgeGenAIPrompt {
   /// build on) prior turns; use [resetConversation] to start over. By
   /// default, calls are stateless. Each instance keeps its own isolated
   /// conversation.
-  EdgeGenAIPrompt({this.useMemory = false})
+  ///
+  /// Pass [tools] to let the model call back into the app while
+  /// generating. Tools are fixed per instance (not per call) because iOS
+  /// binds them to the native session that carries the conversation.
+  EdgeGenAIPrompt({this.useMemory = false, this.tools = const []})
     : _sessionId = 'prompt-${_nextSessionId++}';
 
   /// Backs the per-instance session ids; a simple incrementing counter is
@@ -29,6 +34,10 @@ class EdgeGenAIPrompt {
 
   /// Whether [generateContent] remembers prior turns. See [resetConversation].
   final bool useMemory;
+
+  /// The tools (functions) the model may call while generating. See
+  /// [EdgeGenAITool] for how tool calling differs per platform.
+  final List<EdgeGenAITool> tools;
 
   /// Checks whether the on-device prompt feature is available.
   ///
@@ -68,6 +77,7 @@ class EdgeGenAIPrompt {
       options: options,
       useMemory: useMemory,
       image: image,
+      tools: tools,
     );
   }
 

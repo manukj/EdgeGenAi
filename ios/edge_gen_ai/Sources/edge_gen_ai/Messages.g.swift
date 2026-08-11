@@ -55,6 +55,10 @@ private func wrapError(_ error: Any) -> [Any?] {
   ]
 }
 
+private func createConnectionError(withChannelName channelName: String) -> PigeonError {
+  return PigeonError(code: "channel-error", message: "Unable to establish connection on channel: '\(channelName)'.", details: "")
+}
+
 enum MessagesPigeonInternal {
   static func isNullish(_ value: Any?) -> Bool {
     guard let innerValue = value else {
@@ -246,6 +250,74 @@ enum EdgeGenAIDownloadStatus: Int, CaseIterable {
   case completed = 2
 }
 
+/// The model-facing description of a tool the app exposes to the model.
+///
+/// The tool's implementation stays in Dart (see `EdgeGenAITool.onCall`);
+/// only this schema crosses to the platform side, which calls back into
+/// Dart via `EdgeGenAIToolExecutorApi` when the model invokes the tool.
+///
+/// The description field is named `descriptionText` (not `description`)
+/// because Pigeon reserves `description` for Swift's NSObject property.
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct EdgeGenAIToolDefinition: Hashable, CustomStringConvertible {
+  /// The tool's unique name.
+  var name: String
+  /// What the tool does, so the model knows when to call it.
+  var descriptionText: String
+  /// A JSON Schema document (as JSON text) describing the tool's arguments
+  /// object: `{"type": "object", "properties": {...}, "required": [...]}`.
+  ///
+  /// It's carried as JSON text rather than typed Pigeon classes because
+  /// schemas are recursive (objects nest objects, arrays have item
+  /// schemas), which Pigeon data classes can't express. The supported
+  /// subset — mirroring what Foundation Models' `DynamicGenerationSchema`
+  /// can enforce — is: `type` (string/number/integer/boolean/array/object),
+  /// `description`, `enum` (strings), `minimum`/`maximum` (numbers),
+  /// `items`/`minItems`/`maxItems` (arrays), and `properties`/`required`
+  /// (objects). The `EdgeGenAIToolSchema` factories in Dart only build
+  /// this subset.
+  var parametersSchemaJson: String
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> EdgeGenAIToolDefinition? {
+    let name = pigeonVar_list[0] as! String
+    let descriptionText = pigeonVar_list[1] as! String
+    let parametersSchemaJson = pigeonVar_list[2] as! String
+
+    return EdgeGenAIToolDefinition(
+      name: name,
+      descriptionText: descriptionText,
+      parametersSchemaJson: parametersSchemaJson
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      name,
+      descriptionText,
+      parametersSchemaJson,
+    ]
+  }
+  static func == (lhs: EdgeGenAIToolDefinition, rhs: EdgeGenAIToolDefinition) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return MessagesPigeonInternal.deepEquals(lhs.name, rhs.name) && MessagesPigeonInternal.deepEquals(lhs.descriptionText, rhs.descriptionText) && MessagesPigeonInternal.deepEquals(lhs.parametersSchemaJson, rhs.parametersSchemaJson)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("EdgeGenAIToolDefinition")
+    MessagesPigeonInternal.deepHash(value: name, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: descriptionText, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: parametersSchemaJson, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "EdgeGenAIToolDefinition(name: \(String(describing: name)), descriptionText: \(String(describing: descriptionText)), parametersSchemaJson: \(String(describing: parametersSchemaJson)))"
+  }
+}
+
 /// Optional parameters controlling how the model generates its response.
 ///
 /// Only fields supported by both Android and iOS are exposed here.
@@ -366,8 +438,10 @@ private class MessagesPigeonCodecReader: FlutterStandardReader {
       }
       return nil
     case 133:
-      return EdgeGenAIGenerationOptions.fromList(self.readValue() as! [Any?])
+      return EdgeGenAIToolDefinition.fromList(self.readValue() as! [Any?])
     case 134:
+      return EdgeGenAIGenerationOptions.fromList(self.readValue() as! [Any?])
+    case 135:
       return EdgeGenAIDownloadProgress.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -389,11 +463,14 @@ private class MessagesPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? EdgeGenAIDownloadStatus {
       super.writeByte(132)
       super.writeValue(value.rawValue)
-    } else if let value = value as? EdgeGenAIGenerationOptions {
+    } else if let value = value as? EdgeGenAIToolDefinition {
       super.writeByte(133)
       super.writeValue(value.toList())
-    } else if let value = value as? EdgeGenAIDownloadProgress {
+    } else if let value = value as? EdgeGenAIGenerationOptions {
       super.writeByte(134)
+      super.writeValue(value.toList())
+    } else if let value = value as? EdgeGenAIDownloadProgress {
+      super.writeByte(135)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -429,11 +506,13 @@ protocol EdgeGenAIHostApi {
   /// is true; when false, it's a stateless, one-off call that neither reads
   /// nor updates that instance's remembered conversation. [image] is an
   /// optional encoded image (for example PNG or JPEG bytes) sent to the
-  /// model alongside [prompt].
+  /// model alongside [prompt]. [tools] describes the tools the model may
+  /// call during generation; when it does, the platform side invokes the
+  /// matching Dart executor through `EdgeGenAIToolExecutorApi.callTool`.
   ///
   /// Event channels can't carry parameters, so callers must invoke this
   /// immediately before listening to the `generateContentChunk` stream.
-  func startGenerateContent(sessionId: String, prompt: String, options: EdgeGenAIGenerationOptions?, useMemory: Bool, image: FlutterStandardTypedData?) throws
+  func startGenerateContent(sessionId: String, prompt: String, options: EdgeGenAIGenerationOptions?, useMemory: Bool, image: FlutterStandardTypedData?, tools: [EdgeGenAIToolDefinition]) throws
   /// Clears the conversation history remembered for [sessionId] so that
   /// instance's next `generateContent` call starts a fresh conversation.
   func resetConversation(sessionId: String) throws
@@ -479,7 +558,9 @@ class EdgeGenAIHostApiSetup {
     /// is true; when false, it's a stateless, one-off call that neither reads
     /// nor updates that instance's remembered conversation. [image] is an
     /// optional encoded image (for example PNG or JPEG bytes) sent to the
-    /// model alongside [prompt].
+    /// model alongside [prompt]. [tools] describes the tools the model may
+    /// call during generation; when it does, the platform side invokes the
+    /// matching Dart executor through `EdgeGenAIToolExecutorApi.callTool`.
     ///
     /// Event channels can't carry parameters, so callers must invoke this
     /// immediately before listening to the `generateContentChunk` stream.
@@ -492,8 +573,9 @@ class EdgeGenAIHostApiSetup {
         let optionsArg: EdgeGenAIGenerationOptions? = nilOrValue(args[2])
         let useMemoryArg = args[3] as! Bool
         let imageArg: FlutterStandardTypedData? = nilOrValue(args[4])
+        let toolsArg = args[5] as! [EdgeGenAIToolDefinition]
         do {
-          try api.startGenerateContent(sessionId: sessionIdArg, prompt: promptArg, options: optionsArg, useMemory: useMemoryArg, image: imageArg)
+          try api.startGenerateContent(sessionId: sessionIdArg, prompt: promptArg, options: optionsArg, useMemory: useMemoryArg, image: imageArg, tools: toolsArg)
           reply(wrapResult(nil))
         } catch {
           reply(wrapError(error))
@@ -592,6 +674,54 @@ class EdgeGenAIHostApiSetup {
       }
     } else {
       describeImageChannel.setMessageHandler(nil)
+    }
+  }
+}
+
+/// Calls from the platform side back into Dart, where tool implementations
+/// live.
+///
+/// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
+protocol EdgeGenAIToolExecutorApiProtocol {
+  /// Runs the Dart executor of the tool named [toolName] (registered by the
+  /// `EdgeGenAIPrompt` instance identified by [sessionId]) with the
+  /// JSON-encoded [argumentsJson] the model provided, and returns the
+  /// tool's result for the model to continue generating with.
+  func callTool(sessionId sessionIdArg: String, toolName toolNameArg: String, argumentsJson argumentsJsonArg: String, completion: @escaping (Result<String, PigeonError>) -> Void)
+}
+class EdgeGenAIToolExecutorApi: EdgeGenAIToolExecutorApiProtocol {
+  private let binaryMessenger: FlutterBinaryMessenger
+  private let messageChannelSuffix: String
+  init(binaryMessenger: FlutterBinaryMessenger, messageChannelSuffix: String = "") {
+    self.binaryMessenger = binaryMessenger
+    self.messageChannelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+  }
+  var codec: MessagesPigeonCodec {
+    return MessagesPigeonCodec.shared
+  }
+  /// Runs the Dart executor of the tool named [toolName] (registered by the
+  /// `EdgeGenAIPrompt` instance identified by [sessionId]) with the
+  /// JSON-encoded [argumentsJson] the model provided, and returns the
+  /// tool's result for the model to continue generating with.
+  func callTool(sessionId sessionIdArg: String, toolName toolNameArg: String, argumentsJson argumentsJsonArg: String, completion: @escaping (Result<String, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.edge_gen_ai.EdgeGenAIToolExecutorApi.callTool\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([sessionIdArg, toolNameArg, argumentsJsonArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else if listResponse[0] == nil {
+        completion(.failure(PigeonError(code: "null-error", message: "Flutter api returned null value for non-null return value.", details: "")))
+      } else {
+        let result = listResponse[0] as! String
+        completion(.success(result))
+      }
     }
   }
 }
