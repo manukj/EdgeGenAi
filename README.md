@@ -10,6 +10,7 @@ that shared system model when it isn't ready yet.
 
 > [!IMPORTANT]
 > **Platform versions matter a lot here:**
+>
 > - **iOS 26+** required, with Apple Intelligence enabled in Settings.
 >   **iOS 27+** required for image input (Foundation Models `Attachment`, Beta).
 > - **Android** API 26+ on a device with Gemini Nano/AICore support
@@ -22,49 +23,80 @@ that shared system model when it isn't ready yet.
 
 ## Features
 
-| Class | Task | Details | Screenshot |
-| --- | --- | --- | --- |
-| `EdgeGenAIPrompt` | `generateContent()` | Free-form prompt, streamed response, optional image input and conversation memory. | ![generateContent](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/generateContent.png) |
-| `EdgeGenAISummarizer` | `summarize()` | Summarizes text as bullet points. | ![summarize](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/summarize.png) |
-| `EdgeGenAIProofreader` | `proofread()` | Fixes grammar, spelling, and punctuation. | ![proofread](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/proofread.png) |
-| `EdgeGenAIRewriter` | `rewrite()` | Rewrites text in a chosen `EdgeGenAIRewriteStyle`. | ![rewrite](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/rewrite.png) |
-| `EdgeGenAIImageDescriber` | `describeImage()` | Describes an image. | ![describeImage](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/describeImage.png) |
+| Class                     | Task                    | Details                                                                            | Screenshot                                                                                            |
+| ------------------------- | ----------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `EdgeGenAIPrompt`         | `generateContent()`     | Free-form prompt, streamed response, optional image input and conversation memory. | ![generateContent](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/generateContent.png) |
+| `EdgeGenAISummarizer`     | `summarize()`           | Summarizes text as bullet points.                                                  | ![summarize](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/summarize.png)             |
+| `EdgeGenAIProofreader`    | `proofread()`           | Fixes grammar, spelling, and punctuation.                                          | ![proofread](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/proofread.png)             |
+| `EdgeGenAIRewriter`       | `rewrite()`             | Rewrites text in a chosen `EdgeGenAIRewriteStyle`.                                 | ![rewrite](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/rewrite.png)                 |
+| `EdgeGenAIImageDescriber` | `describeImage()`       | Describes an image.                                                                | ![describeImage](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/describeImage.png)     |
+| `EdgeGenAITool`           | Tool (function) calling | Runs a Dart callback when the model requests one of your tools.                    |                                                                                                       |
 
 ### Tool (function) calling
 
 Add `EdgeGenAITool`s to an `EdgeGenAIPrompt`. When the model uses a tool,
 the plugin runs your Dart callback and gives its result back to the model.
 
-> **Important:** Function calling is native on iOS through Foundation Models.
-> Android ML Kit does not natively support function calling. On Android, this
-> plugin emulates a function call with JSON, so the model may answer directly
-> instead of calling your function.
+> [!CAUTION]
+> **Function calling differs by platform.** iOS uses the Foundation Models
+> framework's native tool-calling support. The Android model does not currently
+> support function calling through ML Kit GenAI, so this plugin adds it manually:
+> it asks the model to return a JSON tool call, parses that response, runs the
+> Dart callback, and sends the result back to the model. This Android path is
+> best-effort—the model can return malformed JSON or answer without calling the
+> tool. Test every function-calling flow carefully on your supported Android
+> devices and model versions.
+
+<!-- Replace this placeholder with the function-calling screenshot. -->
 
 ```dart
-final assistant = EdgeGenAIPrompt(
-  tools: [
-    EdgeGenAITool(
-      name: 'get_weather',
-      description: 'Gets the current weather for a city.',
-      parameters: [
-        EdgeGenAIToolParameter(
-          name: 'city',
-          description: 'The city to get the weather for.',
-        ),
-      ],
-      onCall: (arguments) async {
-        return lookUpWeather(arguments['city'] as String? ?? '');
-      },
-    ),
-  ],
-);
+import 'package:edge_gen_ai/edge_gen_ai.dart';
 
-await for (final chunk in assistant.generateContent(
-  'Should I bring an umbrella in Oslo today?',
-)) {
-  print(chunk);
+Future<void> runFunctionCallingExample() async {
+  final calculator = EdgeGenAITool(
+    name: 'multiply_numbers',
+    description: 'Multiplies two numbers and returns the result.',
+    parameters: [
+      EdgeGenAIToolParameter(
+        name: 'left',
+        description: 'The first number to multiply.',
+        type: EdgeGenAIToolParameterType.number,
+      ),
+      EdgeGenAIToolParameter(
+        name: 'right',
+        description: 'The second number to multiply.',
+        type: EdgeGenAIToolParameterType.number,
+      ),
+    ],
+    onCall: (arguments) async {
+      final left = arguments['left'];
+      final right = arguments['right'];
+
+      if (left is! num || right is! num) {
+        return 'Both left and right must be numbers.';
+      }
+
+      // This is ordinary Dart code. It can also call your database,
+      // device APIs, or a remote service and return their result.
+      return '${left * right}';
+    },
+  );
+
+  final assistant = EdgeGenAIPrompt(tools: [calculator]);
+
+  await for (final response in assistant.generateContent(
+    'Use the calculator to multiply 17 by 24.',
+  )) {
+    // Each event contains the complete response generated so far.
+    print(response);
+  }
 }
 ```
+
+You can register multiple tools on the same `EdgeGenAIPrompt`, including tools
+with no parameters or optional parameters. For a complete Flutter UI with
+several examples, see
+[`function_calling_page.dart`](example/lib/function_calling_page.dart).
 
 Every class exposes `checkAvailability()` and `downloadModel()` alongside its
 task method. On Android these map to ML Kit GenAI's dedicated APIs; on iOS
