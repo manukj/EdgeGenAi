@@ -47,11 +47,7 @@ class _FunctionCallingPageState extends State<FunctionCallingPage>
       ),
       EdgeGenAITool(
         name: 'set_theme',
-        description:
-            'Sets the app theme. Convert any requested accent color name to a '
-            '#RRGGBB value before calling this tool; red is #F44336. Both '
-            'parameters are optional; omitting them applies the default light '
-            'indigo theme.',
+        description: 'Sets the app theme.',
         parameters: [
           EdgeGenAIToolParameter(
             name: 'darkMode',
@@ -62,9 +58,8 @@ class _FunctionCallingPageState extends State<FunctionCallingPage>
           EdgeGenAIToolParameter(
             name: 'accentColor',
             description:
-                'A six-digit #RRGGBB accent color. Convert requested color '
-                'names to this format, for example red to #F44336.',
-            isRequired: false,
+                'The requested accent color as a six-digit hexadecimal value '
+                'in #RRGGBB format.',
           ),
         ],
         onCall: _setTheme,
@@ -225,21 +220,26 @@ class _FunctionCallingPageState extends State<FunctionCallingPage>
 
   Future<String> _setTheme(Map<String, Object?> arguments) async {
     final isDark = arguments['darkMode'] as bool? ?? false;
-    final hexColor = (arguments['accentColor'] as String?)?.replaceFirst(
-      '#',
-      '',
-    );
-    final hexValue =
-        hexColor != null && RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hexColor)
-        ? int.parse(hexColor, radix: 16)
-        : null;
-    final color = hexValue == null
-        ? Colors.indigo
-        : Color(0xFF000000 | hexValue);
+    final accentColor = arguments['accentColor'];
+    if (accentColor is! String) {
+      throw ArgumentError.value(
+        accentColor,
+        'accentColor',
+        'A #RRGGBB color is required.',
+      );
+    }
+    final hexColor = accentColor.replaceFirst('#', '');
+    if (!RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hexColor)) {
+      throw ArgumentError.value(
+        accentColor,
+        'accentColor',
+        'Expected a six-digit #RRGGBB color.',
+      );
+    }
+    final color = Color(0xFF000000 | int.parse(hexColor, radix: 16));
     _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
     widget.onThemeChanged(mode: _themeMode, color: color);
-    return 'Theme changed to ${_themeMode.name} '
-        '${hexValue == null ? 'indigo' : '#$hexColor'}.';
+    return 'Theme changed to ${_themeMode.name} #${hexColor.toUpperCase()}.';
   }
 
   Future<String> _getCurrentTime(Map<String, Object?> _) async {

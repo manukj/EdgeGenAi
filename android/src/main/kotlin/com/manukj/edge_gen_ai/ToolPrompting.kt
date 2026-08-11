@@ -32,12 +32,10 @@ object ToolPrompting {
         buildString {
             appendLine("You can use the following tools:")
             for (tool in tools) {
-                append("- ")
-                append(tool.name)
-                append(": ")
-                append(tool.descriptionText)
-                append(" Arguments JSON schema: ")
-                appendLine(tool.parametersSchemaJson)
+                appendLine(
+                    "- ${tool.name}: ${tool.descriptionText} " +
+                        "Arguments JSON schema: ${tool.parametersSchemaJson}"
+                )
             }
             appendLine(
                 "To use a tool, reply with ONLY a JSON object of the form " +
@@ -67,46 +65,56 @@ object ToolPrompting {
      * Parses [responseText] as a tool call against [tools], returning null
      * when the response is a regular answer (no known tool call).
      *
-     * Tolerates a Markdown code fence around the JSON and trailing text
-     * after the closing brace, both of which small models commonly emit.
+     * Tolerates prose or a Markdown code fence around the JSON, both of
+     * which small models commonly emit. Every balanced JSON object in the
+     * response is checked so an unrelated object before the tool call does
+     * not hide it.
      */
     fun parseToolCall(
         responseText: String,
         tools: List<EdgeGenAIToolDefinition>
     ): ParsedToolCall? {
-        var candidate = responseText.trim()
-        if (candidate.startsWith("```")) {
-            candidate = candidate
-                .removePrefix("```json")
-                .removePrefix("```")
-                .trim()
-                .removeSuffix("```")
-                .trim()
+        for (rawJson in extractJsonObjects(responseText)) {
+            val json =
+                try {
+                    JSONObject(rawJson)
+                } catch (e: JSONException) {
+                    continue
+                }
+            val toolName = json.optString("tool")
+            if (toolName.isEmpty() || tools.none { it.name == toolName }) continue
+            val argumentsJson = json.optJSONObject("arguments")?.toString() ?: "{}"
+            return ParsedToolCall(toolName, argumentsJson, rawJson)
         }
-        if (!candidate.startsWith("{")) return null
-        val rawJson = extractFirstJsonObject(candidate) ?: return null
-        val json =
-            try {
-                JSONObject(rawJson)
-            } catch (e: JSONException) {
-                return null
-            }
-        val toolName = json.optString("tool")
-        if (toolName.isEmpty() || tools.none { it.name == toolName }) return null
-        val argumentsJson = json.optJSONObject("arguments")?.toString() ?: "{}"
-        return ParsedToolCall(toolName, argumentsJson, rawJson)
+        return null
     }
 
     /**
-     * Returns the first balanced `{...}` object at the start of [text]
-     * (which must start with `{`), or null if the braces never balance.
-     * Brace counting skips braces inside JSON string literals.
+     * Returns every top-level balanced `{...}` candidate in [text]. If an
+     * opening brace never balances, scanning resumes at the next one. Brace
+     * counting skips braces inside JSON string literals.
      */
-    private fun extractFirstJsonObject(text: String): String? {
+    private fun extractJsonObjects(text: String): Sequence<String> = sequence {
+        var searchIndex = 0
+        while (searchIndex < text.length) {
+            val startIndex = text.indexOf('{', searchIndex)
+            if (startIndex == -1) break
+            val candidate = extractJsonObjectAt(text, startIndex)
+            if (candidate == null) {
+                searchIndex = startIndex + 1
+            } else {
+                yield(candidate)
+                searchIndex = startIndex + candidate.length
+            }
+        }
+    }
+
+    /** Returns the balanced JSON object beginning at [startIndex], if any. */
+    private fun extractJsonObjectAt(text: String, startIndex: Int): String? {
         var depth = 0
         var inString = false
         var escaped = false
-        for (index in text.indices) {
+        for (index in startIndex until text.length) {
             val char = text[index]
             when {
                 escaped -> escaped = false
@@ -116,7 +124,7 @@ object ToolPrompting {
                 char == '{' -> depth++
                 char == '}' -> {
                     depth--
-                    if (depth == 0) return text.substring(0, index + 1)
+                    if (depth == 0) return text.substring(startIndex, index + 1)
                 }
             }
         }

@@ -15,11 +15,10 @@ void main() {
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
-  static ThemeData _theme(Brightness brightness, Color seedColor) {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: seedColor,
+  static ThemeData _theme(Brightness brightness, Color primaryColor) {
+    final colorScheme = ThemeData(
       brightness: brightness,
-    );
+    ).colorScheme.copyWith(primary: primaryColor, secondary: primaryColor);
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
@@ -51,7 +50,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   ThemeMode _themeMode = ThemeMode.light;
-  Color _themeColor = Colors.indigo;
+  Color _themeColor = Colors.blue;
 
   void _setTheme({required ThemeMode mode, required Color color}) {
     setState(() {

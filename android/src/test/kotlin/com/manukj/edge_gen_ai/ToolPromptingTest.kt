@@ -68,6 +68,44 @@ internal class ToolPromptingTest {
     }
 
     @Test
+    fun parseToolCall_toleratesLeadingAndTrailingText() {
+        val call =
+            ToolPrompting.parseToolCall(
+                "I'll check that for you.\n" +
+                    "{\"tool\": \"get_weather\", \"arguments\": {\"city\": \"Oslo\"}}\n" +
+                    "One moment, please.",
+                listOf(weatherTool),
+            )
+
+        assertEquals("get_weather", call?.toolName)
+        assertTrue(call!!.argumentsJson.contains("Oslo"))
+    }
+
+    @Test
+    fun parseToolCall_findsKnownToolAfterUnrelatedJson() {
+        val call =
+            ToolPrompting.parseToolCall(
+                "Metadata: {\"status\": \"starting\"}\n" +
+                    "Call: {\"tool\": \"get_weather\", \"arguments\": {\"city\": \"Oslo\"}}",
+                listOf(weatherTool),
+            )
+
+        assertEquals("get_weather", call?.toolName)
+    }
+
+    @Test
+    fun parseToolCall_toleratesTextBeforeCodeFence() {
+        val call =
+            ToolPrompting.parseToolCall(
+                "Calling the weather tool:\n```json\n" +
+                    "{\"tool\": \"get_weather\", \"arguments\": {\"city\": \"Oslo\"}}\n```",
+                listOf(weatherTool),
+            )
+
+        assertEquals("get_weather", call?.toolName)
+    }
+
+    @Test
     fun parseToolCall_bracesInsideStrings_doNotConfuseParser() {
         val call =
             ToolPrompting.parseToolCall(
