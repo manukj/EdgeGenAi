@@ -30,7 +30,7 @@ that shared system model when it isn't ready yet.
 | `EdgeGenAIProofreader`    | `proofread()`           | Fixes grammar, spelling, and punctuation.                                          | ![proofread](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/proofread.png)             |
 | `EdgeGenAIRewriter`       | `rewrite()`             | Rewrites text in a chosen `EdgeGenAIRewriteStyle`.                                 | ![rewrite](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/rewrite.png)                 |
 | `EdgeGenAIImageDescriber` | `describeImage()`       | Describes an image.                                                                | ![describeImage](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/describeImage.png)     |
-| `EdgeGenAITool`           | Tool (function) calling | Runs a Dart callback when the model requests one of your tools.                    |                                                                                                       |
+| `EdgeGenAITool`           | Tool (function) calling | Runs a Dart callback when the model requests one of your tools.                    | ![Function calling](https://raw.githubusercontent.com/manukj/EdgeGenAi/master/output/function_call.png) |
 
 ### Tool (function) calling
 
@@ -46,8 +46,6 @@ the plugin runs your Dart callback and gives its result back to the model.
 > best-effort—the model can return malformed JSON or answer without calling the
 > tool. Test every function-calling flow carefully on your supported Android
 > devices and model versions.
-
-<!-- Replace this placeholder with the function-calling screenshot. -->
 
 ```dart
 import 'package:edge_gen_ai/edge_gen_ai.dart';
