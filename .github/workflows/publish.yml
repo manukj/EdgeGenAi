@@ -1,0 +1,14 @@
+name: Publish to pub.dev
+
+on:
+  push:
+    tags:
+      # Must match the v{{version}} tag pattern configured on pub.dev.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  publish:
+    permissions:
+      # Allows pub.dev to authenticate this workflow without a stored token.
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
