@@ -1,13 +1,3 @@
-import java.util.Properties
-
-val localProperties = Properties().apply {
-    file("local.properties").inputStream().use(::load)
-}
-val flutterSdkPath =
-    localProperties.getProperty("flutter.sdk")
-        ?: error("flutter.sdk is not set in local.properties")
-val flutterEngineVersion = file("$flutterSdkPath/bin/internal/engine.version").readText().trim()
-
 group = "com.manukj.edge_gen_ai"
 version = "1.0-SNAPSHOT"
 
@@ -89,7 +79,6 @@ project.extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjec
 }
 
 dependencies {
-    compileOnly("io.flutter:flutter_embedding_release:1.0.0-$flutterEngineVersion")
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
     implementation("com.google.mlkit:genai-summarization:1.0.0-beta1")
     implementation("com.google.mlkit:genai-proofreading:1.0.0-beta1")
@@ -100,7 +89,6 @@ dependencies {
     // ML Kit GenAI clients (checkFeatureStatus/runInference).
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.1")
 
-    testImplementation("io.flutter:flutter_embedding_release:1.0.0-$flutterEngineVersion")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.mockito:mockito-core:5.0.0")
     // The android.jar used by JVM unit tests only stubs org.json, so pull in

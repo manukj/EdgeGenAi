@@ -1,3 +1,9 @@
+## 0.3.1
+
+- Fixes Android builds when the plugin is installed from pub.dev by removing
+  its dependency on an unpublished, machine-local `android/local.properties`
+  file.
+
 ## 0.3.0
 
 - Adds tool (function) calling through `EdgeGenAITool`.

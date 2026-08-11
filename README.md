@@ -38,14 +38,9 @@ Add `EdgeGenAITool`s to an `EdgeGenAIPrompt`. When the model uses a tool,
 the plugin runs your Dart callback and gives its result back to the model.
 
 > [!CAUTION]
-> **Function calling differs by platform.** iOS uses the Foundation Models
-> framework's native tool-calling support. The Android model does not currently
-> support function calling through ML Kit GenAI, so this plugin adds it manually:
-> it asks the model to return a JSON tool call, parses that response, runs the
-> Dart callback, and sends the result back to the model. This Android path is
-> best-effort—the model can return malformed JSON or answer without calling the
-> tool. Test every function-calling flow carefully on your supported Android
-> devices and model versions.
+> Function calling is native on iOS. On Android it is emulated because the
+> model does not currently support it natively, so test your function-calling
+> flows carefully on supported Android devices.
 
 ```dart
 import 'package:edge_gen_ai/edge_gen_ai.dart';
