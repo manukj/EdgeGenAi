@@ -74,6 +74,11 @@ abstract class EdgeGenAIPlatform extends PlatformInterface {
     throw UnimplementedError('resetConversation() has not been implemented.');
   }
 
+  /// Stops the active generation for [sessionId] without clearing its memory.
+  Future<void> stopGeneration(String sessionId) {
+    throw UnimplementedError('stopGeneration() has not been implemented.');
+  }
+
   /// Summarizes [text] and returns the summary.
   Future<String> summarize(String text) {
     throw UnimplementedError('summarize() has not been implemented.');

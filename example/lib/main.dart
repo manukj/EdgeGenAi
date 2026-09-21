@@ -267,6 +267,12 @@ class _ChatPageState extends State<ChatPage>
         );
   }
 
+  Future<void> _stopGeneration() async {
+    await _prompt.stop();
+    if (!mounted) return;
+    setState(() => _isGenerating = false);
+  }
+
   Future<void> _resetConversation() async {
     await _prompt.resetConversation();
     if (!mounted) return;
@@ -492,14 +498,13 @@ class _ChatPageState extends State<ChatPage>
                     ),
                     const SizedBox(width: 8),
                     IconButton.filled(
-                      onPressed: _isGenerating ? null : _generateContent,
+                      onPressed: _isGenerating
+                          ? _stopGeneration
+                          : _generateContent,
                       icon: _isGenerating
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
+                          ? const Icon(Icons.stop)
                           : const Icon(Icons.send),
+                      tooltip: _isGenerating ? 'Stop generation' : 'Send',
                     ),
                   ],
                 ),

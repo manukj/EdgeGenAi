@@ -8,14 +8,30 @@ import Flutter
 class GenerateContentStreamHandler: GenerateContentChunkStreamHandler {
   private let takePendingRequest: () -> PendingGenerateContentRequest?
   private let takeSession: (String, Bool, [EdgeGenAIToolDefinition]) -> Any?
+  private let onCancellationChanged: (@escaping () -> Void) -> Void
+  private var generationTask: Task<Void, Never>?
+  private var activeSink: PigeonEventSink<String>?
 
   init(
     takePendingRequest: @escaping () -> PendingGenerateContentRequest?,
     takeSession: @escaping (String, Bool, [EdgeGenAIToolDefinition]) -> Any?
+    , onCancellationChanged: @escaping (@escaping () -> Void) -> Void
   ) {
     self.takePendingRequest = takePendingRequest
     self.takeSession = takeSession
+    self.onCancellationChanged = onCancellationChanged
     super.init()
+  }
+
+  override func onCancel(withArguments arguments: Any?) {
+    stop()
+  }
+
+  func stop() {
+    activeSink?.endOfStream()
+    generationTask?.cancel()
+    activeSink = nil
+    onCancellationChanged({})
   }
 
   override func onListen(withArguments arguments: Any?, sink: PigeonEventSink<String>) {
@@ -27,6 +43,7 @@ class GenerateContentStreamHandler: GenerateContentChunkStreamHandler {
     }
     #if canImport(FoundationModels)
       if #available(iOS 26.0, *) {
+        activeSink = sink
         guard
           let session = takeSession(request.sessionId, request.useMemory, request.tools)
             as? LanguageModelSession
@@ -35,20 +52,27 @@ class GenerateContentStreamHandler: GenerateContentChunkStreamHandler {
             code: "unavailable", message: "The on-device model isn't available.", details: nil)
           return
         }
-        Task {
+        generationTask = Task {
           do {
             try await FoundationModelsBridge.streamResponse(
               session: session, prompt: request.prompt, image: request.image,
               options: request.options
             ) { chunk in
-              sink.success(chunk)
+              DispatchQueue.main.async { sink.success(chunk) }
             }
-            sink.endOfStream()
+            DispatchQueue.main.async { sink.endOfStream() }
           } catch {
+            if Task.isCancelled { return }
             let wrapped = PigeonError.wrapping(error, fallbackCode: "generate_content_failed")
-            sink.error(code: wrapped.code, message: wrapped.message, details: wrapped.details)
+            DispatchQueue.main.async {
+              sink.error(code: wrapped.code, message: wrapped.message, details: wrapped.details)
+            }
           }
+          self.generationTask = nil
+          self.activeSink = nil
+          self.onCancellationChanged({})
         }
+        onCancellationChanged({ [weak self] in self?.stop() })
         return
       }
     #endif

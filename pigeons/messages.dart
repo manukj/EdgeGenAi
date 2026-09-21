@@ -155,6 +155,9 @@ abstract class EdgeGenAIHostApi {
   /// instance's next `generateContent` call starts a fresh conversation.
   void resetConversation(String sessionId);
 
+  /// Stops the active generation for [sessionId]. It does not clear memory.
+  void stopGeneration(String sessionId);
+
   /// Summarizes [text] and returns the summary.
   @async
   String summarize(String text);

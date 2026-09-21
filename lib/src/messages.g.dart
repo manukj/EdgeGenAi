@@ -534,6 +534,23 @@ class EdgeGenAIHostApi {
     );
   }
 
+  Future<void> stopGeneration(String sessionId) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.stopGeneration$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[sessionId]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
   /// Summarizes [text] and returns the summary.
   Future<String> summarize(String text) async {
     final pigeonVar_channelName =

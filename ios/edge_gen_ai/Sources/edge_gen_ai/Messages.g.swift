@@ -516,6 +516,7 @@ protocol EdgeGenAIHostApi {
   /// Clears the conversation history remembered for [sessionId] so that
   /// instance's next `generateContent` call starts a fresh conversation.
   func resetConversation(sessionId: String) throws
+  func stopGeneration(sessionId: String) throws
   /// Summarizes [text] and returns the summary.
   func summarize(text: String, completion: @escaping (Result<String, Error>) -> Void)
   /// Proofreads [text] and returns the corrected text.
@@ -600,6 +601,21 @@ class EdgeGenAIHostApiSetup {
       }
     } else {
       resetConversationChannel.setMessageHandler(nil)
+    }
+    let stopGenerationChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.stopGeneration\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      stopGenerationChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let sessionIdArg = args[0] as! String
+        do {
+          try api.stopGeneration(sessionId: sessionIdArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      stopGenerationChannel.setMessageHandler(nil)
     }
     /// Summarizes [text] and returns the summary.
     let summarizeChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.summarize\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)

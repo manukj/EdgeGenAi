@@ -362,6 +362,12 @@ class _FunctionCallingPageState extends State<FunctionCallingPage>
         );
   }
 
+  Future<void> _stopGeneration() async {
+    await _prompt.stop();
+    if (!mounted) return;
+    setState(() => _isGenerating = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -398,15 +404,11 @@ class _FunctionCallingPageState extends State<FunctionCallingPage>
           ),
           const SizedBox(height: 8),
           FilledButton.icon(
-            onPressed: _isGenerating ? null : _generate,
+            onPressed: _isGenerating ? _stopGeneration : _generate,
             icon: _isGenerating
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                ? const Icon(Icons.stop)
                 : const Icon(Icons.play_arrow),
-            label: const Text('Run example'),
+            label: Text(_isGenerating ? 'Stop' : 'Run example'),
           ),
           const SizedBox(height: 16),
           if (_result != null)

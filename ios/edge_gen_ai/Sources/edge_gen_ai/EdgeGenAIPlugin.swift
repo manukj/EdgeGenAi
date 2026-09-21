@@ -24,17 +24,29 @@ extension PigeonError {
     if let pigeonError = error as? PigeonError {
       return pigeonError
     }
+    let errorDescription: String
     if let localizedError = error as? LocalizedError,
       let description = localizedError.errorDescription
     {
-      return PigeonError(code: fallbackCode, message: description, details: nil)
+      errorDescription = description
+    } else {
+      errorDescription = String(describing: error)
     }
-    return PigeonError(code: fallbackCode, message: String(describing: error), details: nil)
+    if errorDescription.contains("ModelManagerServices")
+      || errorDescription.contains("SensitiveContentAnalysisML")
+    {
+      return PigeonError(
+        code: "unavailable",
+        message: "Apple's Foundation Models runtime isn't ready in this simulator. Try recreating the simulator or test on a device with Apple Intelligence enabled.",
+        details: nil)
+    }
+    return PigeonError(code: fallbackCode, message: errorDescription, details: nil)
   }
 }
 
 public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
   private var pendingRequest: PendingGenerateContentRequest?
+  private var cancelGeneration: (() -> Void)?
 
   /// In-progress conversations keyed by the Dart-side `EdgeGenAIPrompt`
   /// instance's session id, reused across `generateContent` calls that opt
@@ -63,29 +75,37 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
       with: registrar.messenger(), streamHandler: ImmediateImageDescriptionDownloadStreamHandler())
 
     // The generate content stream is used to stream the model's response back to Flutter as it's generated.
+    let generateContentStreamHandler = GenerateContentStreamHandler(
+      takePendingRequest: { [weak instance] in
+        let request = instance?.pendingRequest
+        instance?.pendingRequest = nil
+        return request
+      },
+      takeSession: { [weak instance] sessionId, useMemory, toolDefinitions in
+        #if canImport(FoundationModels)
+          if #available(iOS 26.0, *) {
+            let tools = FoundationModelsBridge.makeTools(
+              definitions: toolDefinitions, sessionId: sessionId,
+              toolExecutorApi: toolExecutorApi)
+            guard useMemory else { return LanguageModelSession(tools: tools) }
+            let session = FoundationModelsBridge.getOrCreateSession(
+              instance?.sessions[sessionId], tools: tools)
+            instance?.sessions[sessionId] = session
+            return session
+          }
+        #endif
+        return nil
+      },
+      onCancellationChanged: { [weak instance] cancel in
+        instance?.cancelGeneration = cancel
+      })
     GenerateContentChunkStreamHandler.register(
       with: registrar.messenger(),
-      streamHandler: GenerateContentStreamHandler(
-        takePendingRequest: { [weak instance] in
-          let request = instance?.pendingRequest
-          instance?.pendingRequest = nil
-          return request
-        },
-        takeSession: { [weak instance] sessionId, useMemory, toolDefinitions in
-          #if canImport(FoundationModels)
-            if #available(iOS 26.0, *) {
-              let tools = FoundationModelsBridge.makeTools(
-                definitions: toolDefinitions, sessionId: sessionId,
-                toolExecutorApi: toolExecutorApi)
-              guard useMemory else { return LanguageModelSession(tools: tools) }
-              let session = FoundationModelsBridge.getOrCreateSession(
-                instance?.sessions[sessionId], tools: tools)
-              instance?.sessions[sessionId] = session
-              return session
-            }
-          #endif
-          return nil
-        }))
+      streamHandler: generateContentStreamHandler)
+  }
+
+  func stopGeneration(sessionId: String) throws {
+    cancelGeneration?()
   }
 
   /// Whether the SDK this plugin was compiled against, and the current OS,
@@ -186,10 +206,10 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
           do {
             let description = try await FoundationModelsBridge.describeImage(
               imageBytes.data)
-            completion(.success(description))
+            DispatchQueue.main.async { completion(.success(description)) }
           } catch {
-            completion(
-              .failure(PigeonError.wrapping(error, fallbackCode: "describe_image_failed")))
+            let wrapped = PigeonError.wrapping(error, fallbackCode: "describe_image_failed")
+            DispatchQueue.main.async { completion(.failure(wrapped)) }
           }
         }
         return
@@ -215,10 +235,10 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
           do {
             let response = try await FoundationModelsBridge.respondOneShot(
               instructions: instructions, prompt: prompt)
-            completion(.success(response))
+            DispatchQueue.main.async { completion(.success(response)) }
           } catch {
-            completion(
-              .failure(PigeonError.wrapping(error, fallbackCode: "generate_content_failed")))
+            let wrapped = PigeonError.wrapping(error, fallbackCode: "generate_content_failed")
+            DispatchQueue.main.async { completion(.failure(wrapped)) }
           }
         }
         return

@@ -1,3 +1,11 @@
+## 0.3.2
+
+- Android now points to ML Kit GenAI `genai-prompt` 1.0.0-beta4, with
+  improved session memory: older turns are summarized into a rolling summary
+  instead of being dropped, keeping recent turns when possible.
+- Adds `EdgeGenAIPrompt.stop()` and Stop controls to the example UI for
+  cancelling active generation on Android and iOS.
+
 ## 0.3.1
 
 - Fixes Android builds when the plugin is installed from pub.dev by removing

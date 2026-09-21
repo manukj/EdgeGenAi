@@ -78,6 +78,11 @@ class MethodChannelEdgeGenAI extends EdgeGenAIPlatform {
   }
 
   @override
+  Future<void> stopGeneration(String sessionId) {
+    return hostApi.stopGeneration(sessionId);
+  }
+
+  @override
   Future<String> summarize(String text) {
     return hostApi.summarize(text);
   }

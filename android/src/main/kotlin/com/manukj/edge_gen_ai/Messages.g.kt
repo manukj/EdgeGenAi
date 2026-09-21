@@ -566,6 +566,7 @@ interface EdgeGenAIHostApi {
    * instance's next `generateContent` call starts a fresh conversation.
    */
   fun resetConversation(sessionId: String)
+  fun stopGeneration(sessionId: String)
   /** Summarizes [text] and returns the summary. */
   fun summarize(text: String, callback: (Result<String>) -> Unit)
   /** Proofreads [text] and returns the corrected text. */
@@ -638,6 +639,24 @@ interface EdgeGenAIHostApi {
             val sessionIdArg = args[0] as String
             val wrapped: List<Any?> = try {
               api.resetConversation(sessionIdArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.edge_gen_ai.EdgeGenAIHostApi.stopGeneration$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val sessionIdArg = args[0] as String
+            val wrapped: List<Any?> = try {
+              api.stopGeneration(sessionIdArg)
               listOf(null)
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)

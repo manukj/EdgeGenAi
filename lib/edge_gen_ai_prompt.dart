@@ -88,4 +88,9 @@ class EdgeGenAIPrompt {
   Future<void> resetConversation() {
     return EdgeGenAIPlatform.instance.resetConversation(_sessionId);
   }
+
+  /// Stops the active response without clearing this instance's memory.
+  Future<void> stop() {
+    return EdgeGenAIPlatform.instance.stopGeneration(_sessionId);
+  }
 }

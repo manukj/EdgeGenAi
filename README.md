@@ -103,6 +103,42 @@ they're task-specific prompts to the same Foundation Model that backs
 - **Conversation memory**: `EdgeGenAIPrompt(useMemory: true)` remembers
   prior turns; `resetConversation()` starts over. Stateless by default.
 
+On Android, reuse the same prompt instance for the whole conversation:
+
+```dart
+final chat = EdgeGenAIPrompt(useMemory: true);
+await chat.generateContent('My project is a Flutter Android app.').drain<void>();
+await for (final text in chat.generateContent('What platform is my project for?')) {
+  print(text);
+}
+await chat.resetConversation();
+```
+
+To stop an active response without clearing the conversation, call
+`await chat.stop()`. The partial response remains visible, and only a
+successfully completed response is added to session memory.
+
+Android keeps a summary and recent text messages in RAM for each instance.
+Before a request, it counts input tokens (including tool instructions and the
+current image) and reserves output space within the model's reported limit,
+with a conservative 3,500-token input ceiling for the current SDK.
+If the conversation will not fit, Gemini Nano summarizes older messages,
+combining them with any previous summary. The newest two turns are kept
+verbatim when space permits; unusually large turns may also be summarized.
+Summarization uses the Prompt API itself and can require additional inference
+calls, adding latency. Summaries can lose details; they are not an exact archive.
+
+The summary and new turn are saved only after a successful response. If
+summarization fails or the request still cannot fit, the stream reports an error
+and the previous history remains available for retry or reset. Shorten an
+oversized new message or call `resetConversation()`; messages are not silently
+discarded. A reset clears both the summary and recent messages.
+
+Memory is isolated per instance and disappears when the plugin/app process
+ends. Previous images and intermediate tool calls/results are not retained;
+only user text and final answers enter the transcript. Await each response
+before starting the next request.
+
 ## Usage
 
 ```dart
