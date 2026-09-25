@@ -15,7 +15,9 @@ import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.ImagePart
 import com.google.mlkit.genai.prompt.TextPart
+import com.google.mlkit.genai.prompt.TypedCandidate
 import com.google.mlkit.genai.prompt.generateContentRequest
+import com.google.mlkit.genai.prompt.generateTypedContentRequest
 import com.google.mlkit.genai.proofreading.Proofreader
 import com.google.mlkit.genai.proofreading.ProofreaderOptions
 import com.google.mlkit.genai.proofreading.Proofreading
@@ -139,12 +141,13 @@ class EdgeGenAIPlugin : FlutterPlugin, EdgeGenAIHostApi {
                 flutterPluginBinding.binaryMessenger,
                 ImageDescriptionDownloadStreamHandler(scope) { imageDescriber },
         )
-        generateContentStreamHandler = EdgeGenAIGenerateContentStreamHandler(
-                scope,
-                generativeModel,
-                histories,
-                EdgeGenAIToolExecutorApi(flutterPluginBinding.binaryMessenger),
-        ) { pendingRequest.also { pendingRequest = null } }
+        generateContentStreamHandler =
+                EdgeGenAIGenerateContentStreamHandler(
+                        scope,
+                        generativeModel,
+                        histories,
+                        EdgeGenAIToolExecutorApi(flutterPluginBinding.binaryMessenger),
+                ) { pendingRequest.also { pendingRequest = null } }
         GenerateContentChunkStreamHandler.register(
                 flutterPluginBinding.binaryMessenger,
                 generateContentStreamHandler!!,
@@ -414,11 +417,12 @@ private class ImageDescriptionDownloadStreamHandler(
  * Starts generation for the request stashed via `startGenerateContent` when Flutter starts
  * listening, and streams the cumulative response text as it's generated.
  *
- * When the request carries tools, generation runs as a multi-round loop instead (see
- * ToolPrompting): each round's full response is checked for a tool-call JSON object; on a match the
- * matching Dart executor runs via [EdgeGenAIToolExecutorApi] and its result is fed into the next
- * round. Only the final answer is emitted, as a single event, since intermediate rounds are
- * tool-call JSON the caller shouldn't see.
+ * When the request carries tools, generation instead runs as a multi-round structured-output loop
+ * (see ToolPrompting/[ToolDecision]): each round asks the model for a typed decision; on a tool
+ * call the matching Dart executor runs via [EdgeGenAIToolExecutorApi] and its result is fed into
+ * the next round. Only the final answer is emitted, as a single event. Tool calling requires ML
+ * Kit's structured-output feature — if it's unavailable, generation fails with
+ * `tool_calling_unavailable` instead of falling back to unreliable free-text parsing.
  */
 private class EdgeGenAIGenerateContentStreamHandler(
         private val scope: CoroutineScope,
@@ -481,7 +485,19 @@ private class EdgeGenAIGenerateContentStreamHandler(
                     activeSessionId = request.sessionId
                     activeSink = sink
                     try {
-                        if (request.useMemory) tokenLimit = generativeModel.getTokenLimit()
+                        if (request.tools.isNotEmpty() &&
+                                        !generativeModel.isStructuredOutputFeatureAvailable()
+                        ) {
+                            sink.error(
+                                    "tool_calling_unavailable",
+                                    "Tool calling requires structured output support, which isn't available on this device.",
+                                    null,
+                            )
+                            return@launch
+                        }
+                        if (request.useMemory || request.tools.isNotEmpty()) {
+                            tokenLimit = generativeModel.getTokenLimit()
+                        }
                         val summaryOptions = EdgeGenAIGenerationOptions(temperature = 0.0)
                         val summarizer =
                                 ConversationSummarizer(
@@ -508,7 +524,8 @@ private class EdgeGenAIGenerateContentStreamHandler(
                                             fitsBudget(
                                                     withTools(request, text),
                                                     bitmap,
-                                                    request.options
+                                                    request.options,
+                                                    request.tools.isNotEmpty()
                                             )
                                         },
                                         summarize = summarizer::summarize,
@@ -552,10 +569,19 @@ private class EdgeGenAIGenerateContentStreamHandler(
             prompt: String,
             bitmap: Bitmap?,
             options: EdgeGenAIGenerationOptions?,
+            structured: Boolean = false,
     ): Boolean {
         val input = buildGenerateRequest(prompt, bitmap, options)
         val budget = minOf(INPUT_TOKEN_BUDGET, tokenLimit - input.maxOutputTokens)
-        return budget > 0 && generativeModel.countTokens(input).totalTokens <= budget
+        if (budget <= 0) return false
+        val count =
+                if (structured) {
+                    generativeModel.countTokens(
+                                    generateTypedContentRequest(input, ToolDecision::class)
+                            )
+                            .totalTokens
+                } else generativeModel.countTokens(input).totalTokens
+        return count <= budget
     }
 
     /** Generates one complete response, optionally reporting cumulative text. */
@@ -567,7 +593,7 @@ private class EdgeGenAIGenerateContentStreamHandler(
     ): String {
         if (request.useMemory) {
             check(fitsBudget(prompt, bitmap, request.options)) {
-                "The request including conversation/tool results exceeds the input budget."
+                "The request including conversation history exceeds the input budget."
             }
         }
         val cumulativeText = StringBuilder()
@@ -579,7 +605,7 @@ private class EdgeGenAIGenerateContentStreamHandler(
         return cumulativeText.toString()
     }
 
-    /** The tool-emulation path: loops rounds until the model stops calling tools. */
+    /** Loops structured-output tool-decision rounds until the model gives a final answer. */
     private suspend fun runToolLoop(
             request: PendingGenerateContentRequest,
             prompt: String,
@@ -589,16 +615,33 @@ private class EdgeGenAIGenerateContentStreamHandler(
         var roundPrompt = withTools(request, prompt)
         var rounds = 0
         while (true) {
-            val responseText = generateText(request, roundPrompt, bitmap)
-            val toolCall =
-                    if (rounds < MAX_TOOL_ROUNDS) {
-                        ToolPrompting.parseToolCall(responseText, request.tools)
-                    } else {
-                        null
-                    }
+            currentCoroutineContext().ensureActive()
+            check(fitsBudget(roundPrompt, bitmap, request.options, structured = true)) {
+                "The tool request including its output schema exceeds the input budget."
+            }
+            val typedRequest =
+                    generateTypedContentRequest(
+                            buildGenerateRequest(roundPrompt, bitmap, request.options),
+                            ToolDecision::class,
+                    )
+            val candidate = generativeModel.generateContent(typedRequest).candidates.firstOrNull()
+            check(
+                    candidate != null &&
+                            candidate.finishReason == TypedCandidate.TypedFinishReason.STOP &&
+                            candidate.response != null
+            ) {
+                "Structured tool response failed (finishReason=${candidate?.finishReason}). No tool was executed."
+            }
+            val decision = candidate.response!!
+            val toolCall = decision.toolCall(request.tools)
+            val responseText = decision.answer
+            currentCoroutineContext().ensureActive()
             if (toolCall == null) {
                 sink.success(responseText)
                 return responseText
+            }
+            check(rounds < MAX_TOOL_ROUNDS) {
+                "Tool-call limit reached. No additional tool was executed."
             }
             rounds++
             val toolResult =

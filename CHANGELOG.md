@@ -1,3 +1,9 @@
+## 0.3.3
+
+- Android tool (function) calling now uses ML Kit's Structured Output API
+  when the on-device model supports it, for more reliable tool-call
+  decisions; falls back to the previous prompt-based emulation otherwise.
+
 ## 0.3.2
 
 - Android now points to ML Kit GenAI `genai-prompt` 1.0.0-beta4, with
