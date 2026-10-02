@@ -1,3 +1,7 @@
+## 0.3.4
+
+- Improved Android function calling.
+
 ## 0.3.3
 
 - Android tool (function) calling now uses ML Kit's Structured Output API
