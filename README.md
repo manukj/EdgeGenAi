@@ -35,12 +35,19 @@ that shared system model when it isn't ready yet.
 ### Tool (function) calling
 
 Add `EdgeGenAITool`s to an `EdgeGenAIPrompt`. When the model uses a tool,
-the plugin runs your Dart callback and gives its result back to the model.
+the plugin runs your Dart callback. On Android, one model generation selects
+at most one tool, and the callback's result is returned directly as a single
+stream event. There is no second generation or tool chaining. If the model
+chooses to answer directly, that answer is returned instead. On iOS, the
+callback's result is given back to the model to continue generating.
 
 > [!CAUTION]
-> Function calling is native on iOS. On Android it is emulated because the
-> model does not currently support it natively, so test your function-calling
-> flows carefully on supported Android devices.
+> Function calling is native on iOS. On Android it uses ML Kit's Structured
+> Output API when AICore supports it. If structured output is unavailable,
+> Android asks the model for a JSON tool decision and validates its arguments
+> against the registered tool schema before calling your Dart code. The model
+> must return a valid JSON decision for tool calls; unrecognized or invalid
+> decisions do not run tools. See [ML Kit structured output](https://developers.google.com/ml-kit/genai/prompt/android/structured-output).
 
 ```dart
 import 'package:edge_gen_ai/edge_gen_ai.dart';
@@ -91,6 +98,18 @@ with no parameters or optional parameters. For a complete Flutter UI with
 several examples, see
 [`function_calling_page.dart`](example/lib/function_calling_page.dart).
 
+The example app's **Example → Expense Tracker** demo lets you add an expense
+with a message such as “Add £12.50 for lunch” and ask for today's spending.
+The latest tool calls appear as chips above the text field, and the expense list and GBP
+total update from the Dart callbacks. Expenses are kept in memory while the
+tracker screen is open. See [`expensetracker`](example/lib/expensetracker/expense_tracker_page.dart).
+
+In debuggable Android apps, Logcat tag `EdgeGenAI` shows generation requests,
+model responses, tool arguments/results, elapsed time, and errors with SDK
+error codes and stack traces. Long payloads are split into numbered entries.
+Image bytes are logged only as a byte count. Filter with
+`adb logcat -s EdgeGenAI:D`. These logs are disabled in non-debuggable apps.
+
 Every class exposes `checkAvailability()` and `downloadModel()` alongside its
 task method. On Android these map to ML Kit GenAI's dedicated APIs; on iOS
 they're task-specific prompts to the same Foundation Model that backs
@@ -119,14 +138,17 @@ To stop an active response without clearing the conversation, call
 successfully completed response is added to session memory.
 
 Android keeps a summary and recent text messages in RAM for each instance.
-Before a request, it counts input tokens (including tool instructions and the
-current image) and reserves output space within the model's reported limit,
+With `useMemory: true`, it counts input tokens before a request (including
+tool instructions and the current image) and reserves output space within the model's reported limit,
 with a conservative 3,500-token input ceiling for the current SDK.
 If the conversation will not fit, Gemini Nano summarizes older messages,
 combining them with any previous summary. The newest two turns are kept
 verbatim when space permits; unusually large turns may also be summarized.
 Summarization uses the Prompt API itself and can require additional inference
 calls, adding latency. Summaries can lose details; they are not an exact archive.
+
+With memory disabled, requests go directly to generation without token-budget
+prechecks, including tool requests. Input-limit errors are reported by the SDK.
 
 The summary and new turn are saved only after a successful response. If
 summarization fails or the request still cannot fit, the stream reports an error
@@ -135,9 +157,9 @@ oversized new message or call `resetConversation()`; messages are not silently
 discarded. A reset clears both the summary and recent messages.
 
 Memory is isolated per instance and disappears when the plugin/app process
-ends. Previous images and intermediate tool calls/results are not retained;
-only user text and final answers enter the transcript. Await each response
-before starting the next request.
+ends. Previous images and tool-call arguments are not retained; only user
+text and returned responses (including direct tool results) enter the transcript.
+Await each response before starting the next request.
 
 ## Usage
 

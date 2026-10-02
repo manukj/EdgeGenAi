@@ -173,6 +173,8 @@ class EdgeGenAIToolParameter {
 /// emulates it there by instructing the model to reply with a tool-call
 /// JSON object — treat tool calling on Android as best-effort: the small
 /// on-device model may answer directly instead of calling a tool.
+/// Android executes at most one tool per request and returns its result
+/// directly, without another model generation.
 class EdgeGenAITool {
   EdgeGenAITool({
     required this.name,
@@ -191,7 +193,8 @@ class EdgeGenAITool {
   final List<EdgeGenAIToolParameter> parameters;
 
   /// Runs the tool with the [arguments] the model provided (decoded from
-  /// JSON) and returns the result text the model continues generating with.
+  /// JSON). Android returns the result text directly; iOS passes it back
+  /// to the model to continue generating.
   final Future<String> Function(Map<String, Object?> arguments) onCall;
 
   /// This tool's arguments as one JSON Schema object: each parameter is a

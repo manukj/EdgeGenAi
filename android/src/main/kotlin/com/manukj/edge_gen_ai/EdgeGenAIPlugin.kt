@@ -1,8 +1,11 @@
 package com.manukj.edge_gen_ai
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.SystemClock
+import android.util.Log
 import com.google.mlkit.genai.common.DownloadCallback
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
@@ -15,7 +18,9 @@ import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.ImagePart
 import com.google.mlkit.genai.prompt.TextPart
+import com.google.mlkit.genai.prompt.TypedCandidate
 import com.google.mlkit.genai.prompt.generateContentRequest
+import com.google.mlkit.genai.prompt.generateTypedContentRequest
 import com.google.mlkit.genai.proofreading.Proofreader
 import com.google.mlkit.genai.proofreading.ProofreaderOptions
 import com.google.mlkit.genai.proofreading.Proofreading
@@ -139,12 +144,14 @@ class EdgeGenAIPlugin : FlutterPlugin, EdgeGenAIHostApi {
                 flutterPluginBinding.binaryMessenger,
                 ImageDescriptionDownloadStreamHandler(scope) { imageDescriber },
         )
-        generateContentStreamHandler = EdgeGenAIGenerateContentStreamHandler(
-                scope,
-                generativeModel,
-                histories,
-                EdgeGenAIToolExecutorApi(flutterPluginBinding.binaryMessenger),
-        ) { pendingRequest.also { pendingRequest = null } }
+        generateContentStreamHandler =
+                EdgeGenAIGenerateContentStreamHandler(
+                        scope,
+                        generativeModel,
+                        histories,
+                        EdgeGenAIToolExecutorApi(flutterPluginBinding.binaryMessenger),
+                        context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
+                ) { pendingRequest.also { pendingRequest = null } }
         GenerateContentChunkStreamHandler.register(
                 flutterPluginBinding.binaryMessenger,
                 generateContentStreamHandler!!,
@@ -414,30 +421,45 @@ private class ImageDescriptionDownloadStreamHandler(
  * Starts generation for the request stashed via `startGenerateContent` when Flutter starts
  * listening, and streams the cumulative response text as it's generated.
  *
- * When the request carries tools, generation runs as a multi-round loop instead (see
- * ToolPrompting): each round's full response is checked for a tool-call JSON object; on a match the
- * matching Dart executor runs via [EdgeGenAIToolExecutorApi] and its result is fed into the next
- * round. Only the final answer is emitted, as a single event, since intermediate rounds are
- * tool-call JSON the caller shouldn't see.
+ * When the request carries tools, generation asks the model for one [ToolDecision]. The selected
+ * Dart tool runs via [EdgeGenAIToolExecutorApi], and its result is emitted directly as a single
+ * event. If no tool is selected, the model's answer is emitted instead. Devices without ML Kit's
+ * structured-output feature use a validated JSON decision from the text fallback.
  */
 private class EdgeGenAIGenerateContentStreamHandler(
         private val scope: CoroutineScope,
         private val generativeModel: GenerativeModel,
         private val histories: MutableMap<String, ConversationHistory>,
         private val toolExecutorApi: EdgeGenAIToolExecutorApi,
+        private val debugLoggingEnabled: Boolean,
         private val takePendingRequest: () -> PendingGenerateContentRequest?
 ) : GenerateContentChunkStreamHandler() {
     private companion object {
-        /** Bounds the tool-call loop so a confused model can't spin forever. */
-        const val MAX_TOOL_ROUNDS = 4
         // Conservative input budget for genai-prompt beta4 (under 4,000 tokens).
         const val INPUT_TOKEN_BUDGET = 3500
+        const val LOG_TAG = "EdgeGenAI"
+        // Keep payloads below Logcat's per-entry limit, including multibyte text.
+        const val LOG_CHUNK_SIZE = 1000
     }
 
     private var generationJob: Job? = null
     private var activeSessionId: String? = null
     private var activeSink: PigeonEventSink<String>? = null
     private var tokenLimit = 0
+
+    private inline fun debugLog(sessionId: String, event: String, message: () -> String) {
+        if (!debugLoggingEnabled) return
+        val chunks = message().chunked(LOG_CHUNK_SIZE).ifEmpty { listOf("") }
+        chunks.forEachIndexed { index, chunk ->
+            Log.d(LOG_TAG, "[$sessionId] $event (${index + 1}/${chunks.size}): $chunk")
+        }
+    }
+
+    private fun debugError(sessionId: String, event: String, error: Throwable) {
+        if (!debugLoggingEnabled) return
+        val sdkCode = (error as? GenAiException)?.errorCode
+        Log.e(LOG_TAG, "[$sessionId] $event (sdkErrorCode=$sdkCode)", error)
+    }
 
     override fun onCancel(p0: Any?) {
         generationJob?.cancel()
@@ -480,13 +502,26 @@ private class EdgeGenAIGenerateContentStreamHandler(
                 scope.launch {
                     activeSessionId = request.sessionId
                     activeSink = sink
+                    val startedAt = SystemClock.elapsedRealtime()
                     try {
-                        if (request.useMemory) tokenLimit = generativeModel.getTokenLimit()
+                        debugLog(request.sessionId, "Request") {
+                            "useMemory=${request.useMemory}, imageBytes=${request.image?.size ?: 0}, " +
+                                    "temperature=${request.options?.temperature}, " +
+                                    "maxOutputTokens=${request.options?.maxOutputTokens}, " +
+                                    "tools=${request.tools.map { it.name }}\nprompt=${request.prompt}"
+                        }
+                        val structuredToolsAvailable =
+                                request.tools.isNotEmpty() &&
+                                        generativeModel.isStructuredOutputFeatureAvailable()
+                        if (request.useMemory) {
+                            tokenLimit = generativeModel.getTokenLimit()
+                        }
                         val summaryOptions = EdgeGenAIGenerationOptions(temperature = 0.0)
                         val summarizer =
                                 ConversationSummarizer(
                                         fits = { text -> fitsBudget(text, null, summaryOptions) },
                                         generate = { text ->
+                                            debugLog(request.sessionId, "Summary model request") { text }
                                             val result = StringBuilder()
                                             generativeModel.generateContentStream(
                                                             buildGenerateRequest(
@@ -498,6 +533,7 @@ private class EdgeGenAIGenerateContentStreamHandler(
                                                     .collect {
                                                         result.append(it.candidates.first().text)
                                                     }
+                                            debugLog(request.sessionId, "Summary model response") { result.toString() }
                                             result.toString()
                                         },
                                 )
@@ -508,7 +544,8 @@ private class EdgeGenAIGenerateContentStreamHandler(
                                             fitsBudget(
                                                     withTools(request, text),
                                                     bitmap,
-                                                    request.options
+                                                    request.options,
+                                                    request.tools.isNotEmpty()
                                             )
                                         },
                                         summarize = summarizer::summarize,
@@ -521,9 +558,18 @@ private class EdgeGenAIGenerateContentStreamHandler(
                                         sink.success(text)
                                     }
                                 } else {
-                                    runToolLoop(request, promptWithHistory, bitmap, sink)
+                                    generateToolResponse(
+                                            request,
+                                            promptWithHistory,
+                                            bitmap,
+                                            sink,
+                                            structuredToolsAvailable,
+                                    )
                                 }
                         currentCoroutineContext().ensureActive()
+                        debugLog(request.sessionId, "Final response") {
+                            "elapsedMs=${SystemClock.elapsedRealtime() - startedAt}\n$finalText"
+                        }
                         // Reset during inference removes the snapshot: never resurrect it.
                         if (prepared != null && histories[request.sessionId] === history) {
                             histories[request.sessionId] =
@@ -531,8 +577,12 @@ private class EdgeGenAIGenerateContentStreamHandler(
                         }
                         sink.endOfStream()
                     } catch (e: CancellationException) {
+                        debugLog(request.sessionId, "Cancelled") {
+                            "elapsedMs=${SystemClock.elapsedRealtime() - startedAt}"
+                        }
                         throw e
                     } catch (e: Exception) {
+                        debugError(request.sessionId, "Generation failed after ${SystemClock.elapsedRealtime() - startedAt}ms", e)
                         sink.error("generate_content_failed", e.message, null)
                     } finally {
                         if (activeSessionId == request.sessionId) {
@@ -552,10 +602,19 @@ private class EdgeGenAIGenerateContentStreamHandler(
             prompt: String,
             bitmap: Bitmap?,
             options: EdgeGenAIGenerationOptions?,
+            structured: Boolean = false,
     ): Boolean {
         val input = buildGenerateRequest(prompt, bitmap, options)
         val budget = minOf(INPUT_TOKEN_BUDGET, tokenLimit - input.maxOutputTokens)
-        return budget > 0 && generativeModel.countTokens(input).totalTokens <= budget
+        if (budget <= 0) return false
+        val count =
+                if (structured) {
+                    generativeModel.countTokens(
+                                    generateTypedContentRequest(input, ToolDecision::class)
+                            )
+                            .totalTokens
+                } else generativeModel.countTokens(input).totalTokens
+        return count <= budget
     }
 
     /** Generates one complete response, optionally reporting cumulative text. */
@@ -567,59 +626,87 @@ private class EdgeGenAIGenerateContentStreamHandler(
     ): String {
         if (request.useMemory) {
             check(fitsBudget(prompt, bitmap, request.options)) {
-                "The request including conversation/tool results exceeds the input budget."
+                "The request including conversation history exceeds the input budget."
             }
         }
         val cumulativeText = StringBuilder()
+        debugLog(request.sessionId, "Text model request") { prompt }
         generativeModel.generateContentStream(buildGenerateRequest(prompt, bitmap, request.options))
                 .collect { response ->
                     cumulativeText.append(response.candidates.first().text)
                     onUpdate(cumulativeText.toString())
                 }
+        debugLog(request.sessionId, "Text model response") { cumulativeText.toString() }
         return cumulativeText.toString()
     }
 
-    /** The tool-emulation path: loops rounds until the model stops calling tools. */
-    private suspend fun runToolLoop(
+    /** Generates one tool decision and returns the selected tool's result directly. */
+    private suspend fun generateToolResponse(
             request: PendingGenerateContentRequest,
             prompt: String,
             bitmap: Bitmap?,
-            sink: PigeonEventSink<String>
+            sink: PigeonEventSink<String>,
+            structuredOutput: Boolean,
     ): String {
-        var roundPrompt = withTools(request, prompt)
-        var rounds = 0
-        while (true) {
-            val responseText = generateText(request, roundPrompt, bitmap)
-            val toolCall =
-                    if (rounds < MAX_TOOL_ROUNDS) {
-                        ToolPrompting.parseToolCall(responseText, request.tools)
-                    } else {
-                        null
-                    }
-            if (toolCall == null) {
-                sink.success(responseText)
-                return responseText
+        val toolInstructions =
+                if (structuredOutput) ToolPrompting.buildToolPreamble(request.tools)
+                else ToolPrompting.buildTextFallbackPreamble(request.tools)
+        val decisionPrompt = "$toolInstructions\n\nUser request: $prompt"
+        currentCoroutineContext().ensureActive()
+        if (request.useMemory) {
+            check(fitsBudget(decisionPrompt, bitmap, request.options, structured = structuredOutput)) {
+                "The tool request including its output schema exceeds the input budget."
             }
-            rounds++
-            val toolResult =
-                    callDartTool(request.sessionId, toolCall.toolName, toolCall.argumentsJson)
-            roundPrompt += ToolPrompting.buildToolResultContinuation(toolCall, toolResult)
         }
+        debugLog(request.sessionId, "Tool model request") {
+            "structuredOutput=$structuredOutput\n$decisionPrompt"
+        }
+        val decision = if (structuredOutput) {
+            val typedRequest = generateTypedContentRequest(
+                    buildGenerateRequest(decisionPrompt, bitmap, request.options), ToolDecision::class)
+            val candidate = generativeModel.generateContent(typedRequest).candidates.firstOrNull()
+            debugLog(request.sessionId, "Tool model response") {
+                "finishReason=${candidate?.finishReason}\n${candidate?.response}"
+            }
+            check(candidate != null && candidate.finishReason == TypedCandidate.TypedFinishReason.STOP &&
+                    candidate.response != null) {
+                "Structured tool response failed (finishReason=${candidate?.finishReason}). No tool was executed."
+            }
+            candidate.response!!
+        } else {
+            val response = StringBuilder()
+            generativeModel.generateContentStream(
+                    buildGenerateRequest(decisionPrompt, bitmap, request.options)
+            ).collect { chunk -> response.append(chunk.candidates.firstOrNull()?.text.orEmpty()) }
+            debugLog(request.sessionId, "Tool model response") { response.toString() }
+            ToolDecisionParser.parse(response.toString())
+        }
+        val toolCall = decision.toolCall(request.tools)
+        currentCoroutineContext().ensureActive()
+        val responseText = if (toolCall == null) decision.answer
+                else callDartTool(request.sessionId, toolCall.toolName, toolCall.argumentsJson)
+        currentCoroutineContext().ensureActive()
+        sink.success(responseText)
+        return responseText
     }
 
     /**
-     * Runs the tool's Dart implementation and returns its result. Executor failures come back as
-     * text for the model to react to, rather than aborting the whole generation.
+     * Runs the tool's Dart implementation and returns its result. Executor failures are returned
+     * directly as error text rather than aborting the whole generation.
      */
     private suspend fun callDartTool(
             sessionId: String,
             toolName: String,
             argumentsJson: String
     ): String = suspendCoroutine { continuation ->
+        debugLog(sessionId, "Tool callback request") { "tool=$toolName\narguments=$argumentsJson" }
         toolExecutorApi.callTool(sessionId, toolName, argumentsJson) { result ->
-            continuation.resume(
-                    result.getOrElse { e -> "The tool failed with an error: ${e.message}" }
-            )
+            val response = result.getOrElse { e ->
+                debugError(sessionId, "Tool callback failed: $toolName", e)
+                "The tool failed with an error: ${e.message}"
+            }
+            debugLog(sessionId, "Tool callback response") { "tool=$toolName\n$response" }
+            continuation.resume(response)
         }
     }
 

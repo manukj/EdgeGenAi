@@ -11,6 +11,7 @@ buildscript {
     dependencies {
         classpath("com.android.tools.build:gradle:8.11.1")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+        classpath("com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:2.3.6")
     }
 }
 
@@ -30,6 +31,7 @@ val agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.substringBefore
 if (agpMajor < 9) {
     apply(plugin = "org.jetbrains.kotlin.android")
 }
+apply(plugin = "com.google.devtools.ksp")
 
 android {
     namespace = "com.manukj.edge_gen_ai"
@@ -53,6 +55,7 @@ android {
     defaultConfig {
         // ML Kit GenAI Prompt API requires API 26+.
         minSdk = 26
+        consumerProguardFiles("consumer-rules.pro")
     }
 
     testOptions {
@@ -80,6 +83,8 @@ project.extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjec
 
 dependencies {
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
+    implementation("com.google.mlkit:genai-schema:1.0.0-alpha1")
+    add("ksp", "com.google.mlkit:genai-schema-compiler:1.0.0-alpha1")
     implementation("com.google.mlkit:genai-summarization:1.0.0-beta1")
     implementation("com.google.mlkit:genai-proofreading:1.0.0-beta1")
     implementation("com.google.mlkit:genai-rewriting:1.0.0-beta1")

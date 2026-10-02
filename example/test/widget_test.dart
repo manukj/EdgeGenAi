@@ -13,6 +13,7 @@ void main() {
     expect(find.text('Proofread'), findsOneWidget);
     expect(find.text('Rewrite'), findsOneWidget);
     expect(find.text('Describe image'), findsOneWidget);
+    expect(find.text('Example'), findsOneWidget);
   });
 
   testWidgets('function hint pre-fills its prompt', (
