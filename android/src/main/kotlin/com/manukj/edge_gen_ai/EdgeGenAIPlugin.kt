@@ -485,16 +485,9 @@ private class EdgeGenAIGenerateContentStreamHandler(
                     activeSessionId = request.sessionId
                     activeSink = sink
                     try {
-                        if (request.tools.isNotEmpty() &&
-                                        !generativeModel.isStructuredOutputFeatureAvailable()
-                        ) {
-                            sink.error(
-                                    "tool_calling_unavailable",
-                                    "Tool calling requires structured output support, which isn't available on this device.",
-                                    null,
-                            )
-                            return@launch
-                        }
+                        val structuredToolsAvailable =
+                                request.tools.isNotEmpty() &&
+                                        generativeModel.isStructuredOutputFeatureAvailable()
                         if (request.useMemory || request.tools.isNotEmpty()) {
                             tokenLimit = generativeModel.getTokenLimit()
                         }
@@ -538,7 +531,13 @@ private class EdgeGenAIGenerateContentStreamHandler(
                                         sink.success(text)
                                     }
                                 } else {
-                                    runToolLoop(request, promptWithHistory, bitmap, sink)
+                                    runToolLoop(
+                                            request,
+                                            promptWithHistory,
+                                            bitmap,
+                                            sink,
+                                            structuredToolsAvailable,
+                                    )
                                 }
                         currentCoroutineContext().ensureActive()
                         // Reset during inference removes the snapshot: never resurrect it.
@@ -610,29 +609,35 @@ private class EdgeGenAIGenerateContentStreamHandler(
             request: PendingGenerateContentRequest,
             prompt: String,
             bitmap: Bitmap?,
-            sink: PigeonEventSink<String>
+            sink: PigeonEventSink<String>,
+            structuredOutput: Boolean,
     ): String {
-        var roundPrompt = withTools(request, prompt)
+        val toolInstructions =
+                if (structuredOutput) ToolPrompting.buildToolPreamble(request.tools)
+                else ToolPrompting.buildTextFallbackPreamble(request.tools)
+        var roundPrompt = "$toolInstructions\n\nUser request: $prompt"
         var rounds = 0
         while (true) {
             currentCoroutineContext().ensureActive()
-            check(fitsBudget(roundPrompt, bitmap, request.options, structured = true)) {
+            check(fitsBudget(roundPrompt, bitmap, request.options, structured = structuredOutput)) {
                 "The tool request including its output schema exceeds the input budget."
             }
-            val typedRequest =
-                    generateTypedContentRequest(
-                            buildGenerateRequest(roundPrompt, bitmap, request.options),
-                            ToolDecision::class,
-                    )
-            val candidate = generativeModel.generateContent(typedRequest).candidates.firstOrNull()
-            check(
-                    candidate != null &&
-                            candidate.finishReason == TypedCandidate.TypedFinishReason.STOP &&
-                            candidate.response != null
-            ) {
-                "Structured tool response failed (finishReason=${candidate?.finishReason}). No tool was executed."
+            val decision = if (structuredOutput) {
+                val typedRequest = generateTypedContentRequest(
+                        buildGenerateRequest(roundPrompt, bitmap, request.options), ToolDecision::class)
+                val candidate = generativeModel.generateContent(typedRequest).candidates.firstOrNull()
+                check(candidate != null && candidate.finishReason == TypedCandidate.TypedFinishReason.STOP &&
+                        candidate.response != null) {
+                    "Structured tool response failed (finishReason=${candidate?.finishReason}). No tool was executed."
+                }
+                candidate.response!!
+            } else {
+                val response = StringBuilder()
+                generativeModel.generateContentStream(
+                        buildGenerateRequest(roundPrompt, bitmap, request.options)
+                ).collect { chunk -> response.append(chunk.candidates.firstOrNull()?.text.orEmpty()) }
+                ToolDecisionParser.parse(response.toString())
             }
-            val decision = candidate.response!!
             val toolCall = decision.toolCall(request.tools)
             val responseText = decision.answer
             currentCoroutineContext().ensureActive()

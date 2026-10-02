@@ -39,9 +39,11 @@ the plugin runs your Dart callback and gives its result back to the model.
 
 > [!CAUTION]
 > Function calling is native on iOS. On Android it uses ML Kit's Structured
-> Output API when the on-device model supports it, falling back to a
-> prompt-based emulation otherwise, so test your function-calling flows
-> carefully on supported Android devices.
+> Output API when AICore supports it. If structured output is unavailable,
+> Android asks the model for a JSON tool decision and validates its arguments
+> against the registered tool schema before calling your Dart code. The model
+> must return a valid JSON decision for tool calls; unrecognized or invalid
+> decisions do not run tools. See [ML Kit structured output](https://developers.google.com/ml-kit/genai/prompt/android/structured-output).
 
 ```dart
 import 'package:edge_gen_ai/edge_gen_ai.dart';

@@ -35,6 +35,22 @@ object ToolPrompting {
         )
     }
 
+    /** Instructions for models without the native structured-output feature. */
+    fun buildTextFallbackPreamble(tools: List<EdgeGenAIToolDefinition>): String = buildString {
+        appendLine("You are choosing whether to call one of the app tools or answer the user.")
+        appendLine("Available tools:")
+        for (tool in tools) {
+            appendLine("- ${tool.name}: ${tool.descriptionText} Arguments schema: ${tool.parametersSchemaJson}")
+        }
+        append(
+                "Return exactly one JSON object, with no Markdown or surrounding commentary. " +
+                        "For a tool call use {\"action\":\"tool\",\"tool\":\"tool_name\",\"arguments\":{},\"answer\":\"\"}. " +
+                        "Arguments must be a JSON object matching that tool's schema. " +
+                        "For a final response use {\"action\":\"answer\",\"tool\":\"\",\"arguments\":{},\"answer\":\"your response\"}. " +
+                        "Never invent tools or argument names."
+        )
+    }
+
     /**
      * Returns the extension of the round's prompt after the model called a tool and the app
      * returned [toolResult], instructing the model to continue.
