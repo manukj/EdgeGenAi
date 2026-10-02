@@ -50,13 +50,4 @@ object ToolPrompting {
                         "Never invent tools or argument names."
         )
     }
-
-    /**
-     * Returns the extension of the round's prompt after the model called a tool and the app
-     * returned [toolResult], instructing the model to continue.
-     */
-    fun buildToolResultContinuation(toolCall: ParsedToolCall, toolResult: String): String =
-            "\n\nYou replied with the tool call: ${toolCall.rawJson}\n" +
-                    "Tool \"${toolCall.toolName}\" returned: $toolResult\n" +
-                    "Continue: return another ToolDecision using this result."
 }

@@ -102,12 +102,8 @@ internal class ToolDecisionTest {
     }
 
     @Test
-    fun toolPreambleAndContinuationUseTypedEnvelope() {
-        val call = ParsedToolCall("remind", "{}", """{"tool":"remind","arguments":{}}""")
+    fun toolPreambleUsesTypedEnvelope() {
         val preamble = ToolPrompting.buildToolPreamble(listOf(definition))
         assertTrue(preamble.contains("ToolDecision"))
-        val continuation = ToolPrompting.buildToolResultContinuation(call, "Created")
-        assertTrue(continuation.contains("Created"))
-        assertTrue(continuation.contains("ToolDecision"))
     }
 }

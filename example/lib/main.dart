@@ -7,6 +7,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'function_calling_page.dart';
+import 'examples_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -67,7 +68,7 @@ class _MyAppState extends State<MyApp> {
       theme: MyApp._theme(Brightness.light, _themeColor),
       darkTheme: MyApp._theme(Brightness.dark, _themeColor),
       home: DefaultTabController(
-        length: 6,
+        length: 7,
         child: Scaffold(
           appBar: AppBar(
             title: const Text(
@@ -84,6 +85,7 @@ class _MyAppState extends State<MyApp> {
                 Tab(icon: Icon(Icons.spellcheck), text: 'Proofread'),
                 Tab(icon: Icon(Icons.auto_fix_high), text: 'Rewrite'),
                 Tab(icon: Icon(Icons.image_outlined), text: 'Describe image'),
+                Tab(icon: Icon(Icons.widgets_outlined), text: 'Example'),
               ],
             ),
           ),
@@ -95,6 +97,7 @@ class _MyAppState extends State<MyApp> {
               const ProofreadPage(),
               const RewritePage(),
               const ImageDescriptionPage(),
+              const ExamplesPage(),
             ],
           ),
         ),
