@@ -1,4 +1,8 @@
-import Flutter
+#if os(macOS)
+  import FlutterMacOS
+#else
+  import Flutter
+#endif
 #if canImport(FoundationModels)
   import FoundationModels
 #endif
@@ -42,7 +46,7 @@ class GenerateContentStreamHandler: GenerateContentChunkStreamHandler {
       return
     }
     #if canImport(FoundationModels)
-      if #available(iOS 26.0, *) {
+      if #available(iOS 26.0, macOS 26.0, *) {
         activeSink = sink
         guard
           let session = takeSession(request.sessionId, request.useMemory, request.tools)

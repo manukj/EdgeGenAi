@@ -1,4 +1,8 @@
-import Flutter
+#if os(macOS)
+  import FlutterMacOS
+#else
+  import Flutter
+#endif
 
 /// There's nothing for the app to download on iOS — Apple Intelligence is
 /// enabled system-wide in Settings — so every feature's download stream

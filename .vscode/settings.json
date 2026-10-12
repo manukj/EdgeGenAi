@@ -1,5 +1,9 @@
 {
     "chat.tools.terminal.autoApprove": {
-        "fvm": true
+        "fvm": true,
+        "/^which graphify 2>/dev/null; which uv 2>/dev/null; python3 -c \"import graphify\" 2>&1 \\| tail -5$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }

@@ -47,6 +47,9 @@ class MockEdgeGenAIPlatform
   Future<String> summarize(String text) => Future.value('a summary');
 
   @override
+  Future<void> stopGeneration(String sessionId) => Future.value();
+
+  @override
   Future<String> proofread(String text) => Future.value('a corrected text');
 
   @override

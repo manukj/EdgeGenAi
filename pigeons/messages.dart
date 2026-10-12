@@ -5,7 +5,7 @@ import 'package:pigeon/pigeon.dart';
     dartOut: 'lib/src/messages.g.dart',
     kotlinOut: 'android/src/main/kotlin/com/manukj/edge_gen_ai/Messages.g.kt',
     kotlinOptions: KotlinOptions(package: 'com.manukj.edge_gen_ai'),
-    swiftOut: 'ios/edge_gen_ai/Sources/edge_gen_ai/Messages.g.swift',
+    swiftOut: 'darwin/edge_gen_ai/Sources/edge_gen_ai/Messages.g.swift',
     dartPackageName: 'edge_gen_ai',
   ),
 )
