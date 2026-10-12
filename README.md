@@ -1,16 +1,17 @@
 <p align="center">
-  <img src="output/edge_gen_ai_banner.png" alt="Flutter connected to Android with ML Kit, and iOS and macOS with Foundation Models" width="900" />
+  <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/edge_gen_ai_banner.png" alt="Flutter connected to Android with ML Kit, and iOS and macOS with Foundation Models" width="900" />
 </p>
 
 # edge_gen_ai
 
 A Flutter plugin for **on-device** generative AI. It uses Apple's Foundation
-Models (iOS/macOS) and Google's Gemini Nano via ML Kit GenAI (Android) — no
-network calls, no cloud API keys, no data leaving the device.
+Models (iOS/macOS) and Google's Gemini Nano via ML Kit GenAI (Android).
 
-It uses the model the OS already ships with, so there's no model file to
-manage; `downloadModel()` just triggers the OS's own on-demand delivery of
-that shared system model when it isn't ready yet.
+- 📡 **No network calls**
+- 🔑 **No cloud API keys required**
+- 🔒 **On Device and no data leaves your app**
+
+Uses your device's built-in AI model—no model files to manage.
 
 > [!IMPORTANT]
 > **Platform versions matter a lot here:**
@@ -31,19 +32,19 @@ that shared system model when it isn't ready yet.
 
 ✅ Supported · 🟡 Beta / device-dependent · 🔜 Planned
 
-| Feature | API | iOS | Android | macOS | Windows |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| Text generation | `EdgeGenAIPrompt.generateContent()` | ✅ | ✅ | ✅ | 🔜 |
-| Streaming responses | `generateContent()` | ✅ | ✅ | ✅ | 🔜 |
-| Image input | `generateContent(image: ...)` | 🟡 27+ | 🟡 Compatible devices | 🟡 27+ | 🔜 |
-| Image description | `EdgeGenAIImageDescriber.describeImage()` | 🟡 27+ | 🟡 Gemini Nano | 🟡 27+ | 🔜 |
-| Text summarization | `EdgeGenAISummarizer.summarize()` | ✅ | ✅ | ✅ | 🔜 |
-| Proofreading | `EdgeGenAIProofreader.proofread()` | ✅ | ✅ | ✅ | 🔜 |
-| Rewriting | `EdgeGenAIRewriter.rewrite()` | ✅ | ✅ | ✅ | 🔜 |
-| Tool calling | `EdgeGenAITool` | ✅ Native | ✅ Structured output + text parsing | ✅ Native | 🔜 |
-| Conversation memory | `EdgeGenAIPrompt(useMemory: true)` | ✅ | ✅ App-managed RAM | ✅ | 🔜 |
-| Availability | `checkAvailability()` | ✅ | ✅ | ✅ | 🔜 |
-| Model download | `downloadModel()` | ✅ None | ✅ Progress | ✅ None | 🔜 |
+| Feature             | API                                       |    iOS    |               Android               |   macOS   | Windows |
+| :------------------ | :---------------------------------------- | :-------: | :---------------------------------: | :-------: | :-----: |
+| Text generation     | `EdgeGenAIPrompt.generateContent()`       |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Streaming responses | `generateContent()`                       |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Image input         | `generateContent(image: ...)`             |  🟡 27+   |        🟡 Compatible devices        |  🟡 27+   |   🔜    |
+| Image description   | `EdgeGenAIImageDescriber.describeImage()` |  🟡 27+   |           🟡 Gemini Nano            |  🟡 27+   |   🔜    |
+| Text summarization  | `EdgeGenAISummarizer.summarize()`         |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Proofreading        | `EdgeGenAIProofreader.proofread()`        |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Rewriting           | `EdgeGenAIRewriter.rewrite()`             |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Tool calling        | `EdgeGenAITool`                           | ✅ Native | ✅ Structured output + text parsing | ✅ Native |   🔜    |
+| Conversation memory | `EdgeGenAIPrompt(useMemory: true)`        |    ✅     |         ✅ App-managed RAM          |    ✅     |   🔜    |
+| Availability        | `checkAvailability()`                     |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Model download      | `downloadModel()`                         |  ✅ None  |             ✅ Progress             |  ✅ None  |   🔜    |
 
 Android note: ML Kit does not provide native tool calling or conversation
 memory. The plugin supports both: 🛠️ tool calls use structured output when
@@ -53,14 +54,14 @@ instance.
 
 ## Demo
 
-| Class                     | Details                                                                            | Screenshot                                                                                            |
-| ------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Class                     | Details                                                                            | Screenshot                                                                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `EdgeGenAIPrompt`         | Free-form prompt, streamed response, optional image input and conversation memory. | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/generateContent.png" alt="generateContent" width="160" height="357" /> |
-| `EdgeGenAISummarizer`     | Summarizes text as bullet points.                                                  | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/summarize.png" alt="summarize" width="160" height="357" /> |
-| `EdgeGenAIProofreader`    | Fixes grammar, spelling, and punctuation.                                          | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/proofread.png" alt="proofread" width="160" height="357" /> |
-| `EdgeGenAIRewriter`       | Rewrites text in a chosen `EdgeGenAIRewriteStyle`.                                 | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/rewrite.png" alt="rewrite" width="160" height="357" /> |
-| `EdgeGenAIImageDescriber` | Describes an image.                                                                | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/describeImage.png" alt="describeImage" width="160" height="357" /> |
-| `EdgeGenAITool`           | Runs a Dart callback when the model requests one of your tools.                    | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/function_call.png" alt="Function calling" width="160" height="357" /> |
+| `EdgeGenAISummarizer`     | Summarizes text as bullet points.                                                  | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/summarize.png" alt="summarize" width="160" height="357" />             |
+| `EdgeGenAIProofreader`    | Fixes grammar, spelling, and punctuation.                                          | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/proofread.png" alt="proofread" width="160" height="357" />             |
+| `EdgeGenAIRewriter`       | Rewrites text in a chosen `EdgeGenAIRewriteStyle`.                                 | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/rewrite.png" alt="rewrite" width="160" height="357" />                 |
+| `EdgeGenAIImageDescriber` | Describes an image.                                                                | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/describeImage.png" alt="describeImage" width="160" height="357" />     |
+| `EdgeGenAITool`           | Runs a Dart callback when the model requests one of your tools.                    | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/function_call.png" alt="Function calling" width="160" height="357" />  |
 
 ## Usage
 
