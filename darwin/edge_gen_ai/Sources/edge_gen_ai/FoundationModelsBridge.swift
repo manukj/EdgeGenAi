@@ -1,4 +1,5 @@
-import UIKit
+import Foundation
+import ImageIO
 
 #if canImport(FoundationModels)
   import FoundationModels
@@ -7,9 +8,9 @@ import UIKit
   ///
   /// Everything that touches `FoundationModels` types lives here, gated once
   /// at the type level with `@available`, so callers elsewhere only need a
-  /// single `if #available(iOS 26.0, *)` check to cross into this API
+  /// single `if #available(iOS 26.0, macOS 26.0, *)` check to cross into this API
   /// instead of repeating framework-specific logic inline at every call site.
-  @available(iOS 26.0, *)
+  @available(iOS 26.0, macOS 26.0, *)
   enum FoundationModelsBridge {
     /// Maps the system model's availability to the plugin's cross-platform enum.
     static func checkAvailability() -> EdgeGenAIAvailability {
@@ -74,7 +75,7 @@ import UIKit
         maximumResponseTokens: options?.maxOutputTokens.map { Int($0) })
       if let image {
         #if compiler(>=6.4)
-          if #available(iOS 27.0, *) {
+          if #available(iOS 27.0, macOS 27.0, *) {
             let attachedImage = try cgImage(from: image)
             let stream = session.streamResponse(options: generationOptions) {
               prompt
@@ -88,7 +89,7 @@ import UIKit
         #endif
         throw PigeonError(
           code: "unavailable",
-          message: "Sending an image with a prompt requires iOS 27 or later.", details: nil)
+          message: "Sending an image with a prompt requires iOS 27 or macOS 27 or later.", details: nil)
       }
       let stream = session.streamResponse(to: prompt, options: generationOptions)
       for try await snapshot in stream {
@@ -99,7 +100,7 @@ import UIKit
     #if compiler(>=6.4)
       /// Describes the image encoded in `image` via a one-shot generation
       /// with the image attached to the prompt.
-      @available(iOS 27.0, *)
+      @available(iOS 27.0, macOS 27.0, *)
       static func describeImage(_ image: Data) async throws -> String {
         let session = LanguageModelSession(
           instructions:
@@ -116,7 +117,9 @@ import UIKit
 
     /// Decodes encoded image bytes (for example PNG or JPEG) into a `CGImage`.
     private static func cgImage(from data: Data) throws -> CGImage {
-      guard let cgImage = UIImage(data: data)?.cgImage else {
+      guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+        let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
+      else {
         throw PigeonError(
           code: "invalid_image", message: "The image bytes couldn't be decoded.", details: nil)
       }

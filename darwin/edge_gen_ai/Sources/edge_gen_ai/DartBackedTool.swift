@@ -1,4 +1,8 @@
-import Flutter
+#if os(macOS)
+  import FlutterMacOS
+#else
+  import Flutter
+#endif
 import Foundation
 
 #if canImport(FoundationModels)
@@ -13,7 +17,7 @@ import Foundation
   /// the model calls the tool, the arguments are forwarded to the matching
   /// Dart executor through `EdgeGenAIToolExecutorApi` and its result is
   /// handed back to the model.
-  @available(iOS 26.0, *)
+  @available(iOS 26.0, macOS 26.0, *)
   final class DartBackedTool: Tool {
     typealias Arguments = GeneratedContent
     typealias Output = String

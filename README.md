@@ -1,18 +1,25 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/edge_gen_ai_banner.png" alt="Flutter connected to Android with ML Kit, and iOS and macOS with Foundation Models" width="900" />
+</p>
+
 # edge_gen_ai
 
 A Flutter plugin for **on-device** generative AI. It uses Apple's Foundation
-Models (iOS) and Google's Gemini Nano via ML Kit GenAI (Android) — no
-network calls, no cloud API keys, no data leaving the phone.
+Models (iOS/macOS) and Google's Gemini Nano via ML Kit GenAI (Android).
 
-It uses the model the OS already ships with, so there's no model file to
-manage; `downloadModel()` just triggers the OS's own on-demand delivery of
-that shared system model when it isn't ready yet.
+- 📡 **No network calls**
+- 🔑 **No cloud API keys required**
+- 🔒 **On Device and no data leaves your app**
+
+Uses your device's built-in AI model—no model files to manage.
 
 > [!IMPORTANT]
 > **Platform versions matter a lot here:**
 >
 > - **iOS 26+** required, with Apple Intelligence enabled in Settings.
 >   **iOS 27+** required for image input (Foundation Models `Attachment`, Beta).
+> - **macOS 26+** required on an Apple Intelligence-capable Mac, with Apple
+>   Intelligence enabled. **macOS 27+** required for image input (Beta).
 > - **Android** API 26+ on a device with Gemini Nano/AICore support
 >   (e.g. Pixel 8+, Samsung S23+). **Android's backend is Beta** —
 >   ML Kit GenAI APIs have no SLA or backward-compatibility guarantee.
@@ -23,170 +30,66 @@ that shared system model when it isn't ready yet.
 
 ## Features
 
-| Class                     | Task                    | Details                                                                            | Screenshot                                                                                            |
-| ------------------------- | ----------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `EdgeGenAIPrompt`         | `generateContent()`     | Free-form prompt, streamed response, optional image input and conversation memory. | ![generateContent](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/generateContent.png) |
-| `EdgeGenAISummarizer`     | `summarize()`           | Summarizes text as bullet points.                                                  | ![summarize](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/summarize.png)             |
-| `EdgeGenAIProofreader`    | `proofread()`           | Fixes grammar, spelling, and punctuation.                                          | ![proofread](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/proofread.png)             |
-| `EdgeGenAIRewriter`       | `rewrite()`             | Rewrites text in a chosen `EdgeGenAIRewriteStyle`.                                 | ![rewrite](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/rewrite.png)                 |
-| `EdgeGenAIImageDescriber` | `describeImage()`       | Describes an image.                                                                | ![describeImage](https://raw.githubusercontent.com/manukj/EdgeAi/master/output/describeImage.png)     |
-| `EdgeGenAITool`           | Tool (function) calling | Runs a Dart callback when the model requests one of your tools.                    | ![Function calling](https://raw.githubusercontent.com/manukj/EdgeGenAi/master/output/function_call.png) |
+✅ Supported · 🟡 Beta / device-dependent · 🔜 Planned
 
-### Tool (function) calling
+| Feature             | API                                       |    iOS    |               Android               |   macOS   | Windows |
+| :------------------ | :---------------------------------------- | :-------: | :---------------------------------: | :-------: | :-----: |
+| Text generation     | `EdgeGenAIPrompt.generateContent()`       |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Streaming responses | `generateContent()`                       |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Image input         | `generateContent(image: ...)`             |  🟡 27+   |        🟡 Compatible devices        |  🟡 27+   |   🔜    |
+| Image description   | `EdgeGenAIImageDescriber.describeImage()` |  🟡 27+   |           🟡 Gemini Nano            |  🟡 27+   |   🔜    |
+| Text summarization  | `EdgeGenAISummarizer.summarize()`         |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Proofreading        | `EdgeGenAIProofreader.proofread()`        |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Rewriting           | `EdgeGenAIRewriter.rewrite()`             |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Tool calling        | `EdgeGenAITool`                           | ✅ Native | ✅ Structured output + text parsing | ✅ Native |   🔜    |
+| Conversation memory | `EdgeGenAIPrompt(useMemory: true)`        |    ✅     |         ✅ App-managed RAM          |    ✅     |   🔜    |
+| Availability        | `checkAvailability()`                     |    ✅     |                 ✅                  |    ✅     |   🔜    |
+| Model download      | `downloadModel()`                         |  ✅ None  |             ✅ Progress             |  ✅ None  |   🔜    |
 
-Add `EdgeGenAITool`s to an `EdgeGenAIPrompt`. When the model uses a tool,
-the plugin runs your Dart callback. On Android, one model generation selects
-at most one tool, and the callback's result is returned directly as a single
-stream event. There is no second generation or tool chaining. If the model
-chooses to answer directly, that answer is returned instead. On iOS, the
-callback's result is given back to the model to continue generating.
+Android note: ML Kit does not provide native tool calling or conversation
+memory. The plugin supports both: 🛠️ tool calls use structured output when
+available, with text parsing and JSON validation as a fallback, then run the
+Dart callback; 🧠 memory keeps recent messages and summaries in RAM per prompt
+instance.
 
-> [!CAUTION]
-> Function calling is native on iOS. On Android it uses ML Kit's Structured
-> Output API when AICore supports it. If structured output is unavailable,
-> Android asks the model for a JSON tool decision and validates its arguments
-> against the registered tool schema before calling your Dart code. The model
-> must return a valid JSON decision for tool calls; unrecognized or invalid
-> decisions do not run tools. See [ML Kit structured output](https://developers.google.com/ml-kit/genai/prompt/android/structured-output).
+## Demo
+
+| Class                     | Details                                                                            | Screenshot                                                                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EdgeGenAIPrompt`         | Free-form prompt, streamed response, optional image input and conversation memory. | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/generateContent.png" alt="generateContent" width="160" height="357" /> |
+| `EdgeGenAISummarizer`     | Summarizes text as bullet points.                                                  | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/summarize.png" alt="summarize" width="160" height="357" />             |
+| `EdgeGenAIProofreader`    | Fixes grammar, spelling, and punctuation.                                          | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/proofread.png" alt="proofread" width="160" height="357" />             |
+| `EdgeGenAIRewriter`       | Rewrites text in a chosen `EdgeGenAIRewriteStyle`.                                 | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/rewrite.png" alt="rewrite" width="160" height="357" />                 |
+| `EdgeGenAIImageDescriber` | Describes an image.                                                                | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/describeImage.png" alt="describeImage" width="160" height="357" />     |
+| `EdgeGenAITool`           | Runs a Dart callback when the model requests one of your tools.                    | <img src="https://raw.githubusercontent.com/manukj/EdgeAi/master/output/function_call.png" alt="Function calling" width="160" height="357" />  |
+
+## Usage
+
+### Availability and downloads
 
 ```dart
-import 'package:edge_gen_ai/edge_gen_ai.dart';
+final availability = await prompt.checkAvailability();
 
-Future<void> runFunctionCallingExample() async {
-  final calculator = EdgeGenAITool(
-    name: 'multiply_numbers',
-    description: 'Multiplies two numbers and returns the result.',
-    parameters: [
-      EdgeGenAIToolParameter(
-        name: 'left',
-        description: 'The first number to multiply.',
-        type: EdgeGenAIToolParameterType.number,
-      ),
-      EdgeGenAIToolParameter(
-        name: 'right',
-        description: 'The second number to multiply.',
-        type: EdgeGenAIToolParameterType.number,
-      ),
-    ],
-    onCall: (arguments) async {
-      final left = arguments['left'];
-      final right = arguments['right'];
-
-      if (left is! num || right is! num) {
-        return 'Both left and right must be numbers.';
-      }
-
-      // This is ordinary Dart code. It can also call your database,
-      // device APIs, or a remote service and return their result.
-      return '${left * right}';
-    },
-  );
-
-  final assistant = EdgeGenAIPrompt(tools: [calculator]);
-
-  await for (final response in assistant.generateContent(
-    'Use the calculator to multiply 17 by 24.',
-  )) {
-    // Each event contains the complete response generated so far.
-    print(response);
+if (availability == EdgeGenAIAvailability.downloadable) {
+  await for (final progress in prompt.downloadModel()) {
+    print(progress.status);
   }
 }
 ```
 
-You can register multiple tools on the same `EdgeGenAIPrompt`, including tools
-with no parameters or optional parameters. For a complete Flutter UI with
-several examples, see
-[`function_calling_page.dart`](example/lib/function_calling_page.dart).
-
-The example app's **Example → Expense Tracker** demo lets you add an expense
-with a message such as “Add £12.50 for lunch” and ask for today's spending.
-The latest tool calls appear as chips above the text field, and the expense list and GBP
-total update from the Dart callbacks. Expenses are kept in memory while the
-tracker screen is open. See [`expensetracker`](example/lib/expensetracker/expense_tracker_page.dart).
-
-In debuggable Android apps, Logcat tag `EdgeGenAI` shows generation requests,
-model responses, tool arguments/results, elapsed time, and errors with SDK
-error codes and stack traces. Long payloads are split into numbered entries.
-Image bytes are logged only as a byte count. Filter with
-`adb logcat -s EdgeGenAI:D`. These logs are disabled in non-debuggable apps.
-
-Every class exposes `checkAvailability()` and `downloadModel()` alongside its
-task method. On Android these map to ML Kit GenAI's dedicated APIs; on iOS
-they're task-specific prompts to the same Foundation Model that backs
-`EdgeGenAIPrompt`.
-
-- **Availability + download**: `checkAvailability()` reports ready /
-  downloadable / not-enabled / unsupported. `downloadModel()` streams
-  download progress on Android; on iOS it completes immediately (nothing
-  to download).
-- **Conversation memory**: `EdgeGenAIPrompt(useMemory: true)` remembers
-  prior turns; `resetConversation()` starts over. Stateless by default.
-
-On Android, reuse the same prompt instance for the whole conversation:
-
-```dart
-final chat = EdgeGenAIPrompt(useMemory: true);
-await chat.generateContent('My project is a Flutter Android app.').drain<void>();
-await for (final text in chat.generateContent('What platform is my project for?')) {
-  print(text);
-}
-await chat.resetConversation();
-```
-
-To stop an active response without clearing the conversation, call
-`await chat.stop()`. The partial response remains visible, and only a
-successfully completed response is added to session memory.
-
-Android keeps a summary and recent text messages in RAM for each instance.
-With `useMemory: true`, it counts input tokens before a request (including
-tool instructions and the current image) and reserves output space within the model's reported limit,
-with a conservative 3,500-token input ceiling for the current SDK.
-If the conversation will not fit, Gemini Nano summarizes older messages,
-combining them with any previous summary. The newest two turns are kept
-verbatim when space permits; unusually large turns may also be summarized.
-Summarization uses the Prompt API itself and can require additional inference
-calls, adding latency. Summaries can lose details; they are not an exact archive.
-
-With memory disabled, requests go directly to generation without token-budget
-prechecks, including tool requests. Input-limit errors are reported by the SDK.
-
-The summary and new turn are saved only after a successful response. If
-summarization fails or the request still cannot fit, the stream reports an error
-and the previous history remains available for retry or reset. Shorten an
-oversized new message or call `resetConversation()`; messages are not silently
-discarded. A reset clears both the summary and recent messages.
-
-Memory is isolated per instance and disappears when the plugin/app process
-ends. Previous images and tool-call arguments are not retained; only user
-text and returned responses (including direct tool results) enter the transcript.
-Await each response before starting the next request.
-
-## Usage
+### Prompting
 
 ```dart
 import 'package:edge_gen_ai/edge_gen_ai.dart';
 
 final prompt = EdgeGenAIPrompt();
 
-// 1. Check whether the on-device feature is ready.
-final availability = await prompt.checkAvailability();
-
-// 2. If needed, download it (no-op on iOS).
-if (availability == EdgeGenAIAvailability.downloadable) {
-  await for (final progress in prompt.downloadModel()) {
-    print('${progress.status}: ${progress.bytesDownloaded ?? ''}');
-  }
-}
-
-// 3. Generate content. Each event is the full text generated so far.
 await for (final chunk in prompt.generateContent(
   'Write a 3 sentence story about a magical dog.',
-  options: EdgeGenAIGenerationOptions(temperature: 0.8, maxOutputTokens: 256),
 )) {
   print(chunk);
 }
 
-// Optionally attach a single image (encoded bytes, e.g. PNG or JPEG).
 await for (final chunk in prompt.generateContent(
   'What is in this picture?',
   image: imageBytes,
@@ -195,7 +98,7 @@ await for (final chunk in prompt.generateContent(
 }
 ```
 
-Hold a memory-enabled conversation across calls:
+### Memory
 
 ```dart
 final chat = EdgeGenAIPrompt(useMemory: true);
@@ -204,6 +107,42 @@ await for (final chunk in chat.generateContent('What is my name?')) {
   print(chunk); // remembers "Alex"
 }
 await chat.resetConversation(); // start fresh
+```
+
+### Stopping a response
+
+```dart
+await prompt.stop();
+```
+
+### Tool calling
+
+```dart
+final calculator = EdgeGenAITool(
+  name: 'multiply_numbers',
+  description: 'Multiplies two numbers.',
+  parameters: [
+    EdgeGenAIToolParameter(
+      name: 'left',
+      description: 'The first number.',
+      type: EdgeGenAIToolParameterType.number,
+    ),
+    EdgeGenAIToolParameter(
+      name: 'right',
+      description: 'The second number.',
+      type: EdgeGenAIToolParameterType.number,
+    ),
+  ],
+  onCall: (arguments) async =>
+      '${arguments['left'] * arguments['right']}',
+);
+
+final assistant = EdgeGenAIPrompt(tools: [calculator]);
+await for (final response in assistant.generateContent(
+  'Use the calculator to multiply 17 by 24.',
+)) {
+  print(response);
+}
 ```
 
 Use the task-specific features (each has its own `checkAvailability()` /
@@ -224,3 +163,10 @@ final description = await EdgeGenAIImageDescriber().describeImage(imageBytes);
 
 See the [example app](example/lib/main.dart) for a chat UI and a text-tools
 demo built on top of this API.
+
+### Run on macOS
+
+```sh
+cd example
+flutter run -d macos
+```

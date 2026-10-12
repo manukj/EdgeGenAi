@@ -1,5 +1,10 @@
-import Flutter
-import UIKit
+#if os(macOS)
+  import FlutterMacOS
+#else
+  import Flutter
+#endif
+import Foundation
+import ImageIO
 #if canImport(FoundationModels)
   import FoundationModels
 #endif
@@ -57,22 +62,27 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = EdgeGenAIPlugin()
-    EdgeGenAIHostApiSetup.setUp(binaryMessenger: registrar.messenger(), api: instance)
-    let toolExecutorApi = EdgeGenAIToolExecutorApi(binaryMessenger: registrar.messenger())
+    #if os(macOS)
+      let messenger = registrar.messenger
+    #else
+      let messenger = registrar.messenger()
+    #endif
+    EdgeGenAIHostApiSetup.setUp(binaryMessenger: messenger, api: instance)
+    let toolExecutorApi = EdgeGenAIToolExecutorApi(binaryMessenger: messenger)
 
     // NOT NEEDED: downloads are only relevant on Android — Apple Intelligence is enabled
     // system-wide in Settings — but we still register every download stream so that the
     // Flutter side can listen without crashing; each immediately reports completion.
     PromptDownloadProgressStreamHandler.register(
-      with: registrar.messenger(), streamHandler: ImmediatePromptDownloadStreamHandler())
+      with: messenger, streamHandler: ImmediatePromptDownloadStreamHandler())
     SummarizationDownloadProgressStreamHandler.register(
-      with: registrar.messenger(), streamHandler: ImmediateSummarizationDownloadStreamHandler())
+      with: messenger, streamHandler: ImmediateSummarizationDownloadStreamHandler())
     ProofreadingDownloadProgressStreamHandler.register(
-      with: registrar.messenger(), streamHandler: ImmediateProofreadingDownloadStreamHandler())
+      with: messenger, streamHandler: ImmediateProofreadingDownloadStreamHandler())
     RewritingDownloadProgressStreamHandler.register(
-      with: registrar.messenger(), streamHandler: ImmediateRewritingDownloadStreamHandler())
+      with: messenger, streamHandler: ImmediateRewritingDownloadStreamHandler())
     ImageDescriptionDownloadProgressStreamHandler.register(
-      with: registrar.messenger(), streamHandler: ImmediateImageDescriptionDownloadStreamHandler())
+      with: messenger, streamHandler: ImmediateImageDescriptionDownloadStreamHandler())
 
     // The generate content stream is used to stream the model's response back to Flutter as it's generated.
     let generateContentStreamHandler = GenerateContentStreamHandler(
@@ -83,7 +93,7 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
       },
       takeSession: { [weak instance] sessionId, useMemory, toolDefinitions in
         #if canImport(FoundationModels)
-          if #available(iOS 26.0, *) {
+          if #available(iOS 26.0, macOS 26.0, *) {
             let tools = FoundationModelsBridge.makeTools(
               definitions: toolDefinitions, sessionId: sessionId,
               toolExecutorApi: toolExecutorApi)
@@ -100,7 +110,7 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
         instance?.cancelGeneration = cancel
       })
     GenerateContentChunkStreamHandler.register(
-      with: registrar.messenger(),
+      with: messenger,
       streamHandler: generateContentStreamHandler)
   }
 
@@ -112,7 +122,7 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
   /// support image input (Foundation Models' `Attachment`, iOS 27+ — Beta).
   private var supportsImageInput: Bool {
     #if compiler(>=6.4)
-      if #available(iOS 27.0, *) {
+      if #available(iOS 27.0, macOS 27.0, *) {
         return true
       }
     #endif
@@ -123,7 +133,7 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
     feature: EdgeGenAIFeature, completion: @escaping (Result<EdgeGenAIAvailability, Error>) -> Void
   ) {
     #if canImport(FoundationModels)
-      if #available(iOS 26.0, *) {
+      if #available(iOS 26.0, macOS 26.0, *) {
         // Every feature is backed by the one system model, so they share its
         // availability — except image description, which additionally needs
         // image input support.
@@ -201,7 +211,7 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
     imageBytes: FlutterStandardTypedData, completion: @escaping (Result<String, Error>) -> Void
   ) {
     #if canImport(FoundationModels) && compiler(>=6.4)
-      if #available(iOS 27.0, *) {
+      if #available(iOS 27.0, macOS 27.0, *) {
         Task {
           do {
             let description = try await FoundationModelsBridge.describeImage(
@@ -219,7 +229,7 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
       .failure(
         PigeonError(
           code: "unavailable",
-          message: "Image description requires iOS 27 or later.", details: nil)))
+          message: "Image description requires iOS 27 or macOS 27 or later.", details: nil)))
   }
 
   /// Runs a one-shot, stateless generation with a task-specific instruction,
@@ -230,7 +240,7 @@ public class EdgeGenAIPlugin: NSObject, FlutterPlugin, EdgeGenAIHostApi {
     completion: @escaping (Result<String, Error>) -> Void
   ) {
     #if canImport(FoundationModels)
-      if #available(iOS 26.0, *) {
+      if #available(iOS 26.0, macOS 26.0, *) {
         Task {
           do {
             let response = try await FoundationModelsBridge.respondOneShot(

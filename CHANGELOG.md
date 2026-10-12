@@ -1,3 +1,7 @@
+## 0.4.0
+
+- Adds macOS support.
+
 ## 0.3.4
 
 - Improved Android function calling.
